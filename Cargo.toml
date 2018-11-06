@@ -4,6 +4,8 @@ version = "0.0.1"
 authors = ["Olivier Goffart <ogoffart@woboq.com>"]
 build = "build.rs"
 description = "Experimental rust-based QML-like language."
+license = "MIT"
+repository = "https://github.com/ogoffart/propertybindings-rs"
 
 [dependencies]
 qmetaobject = "0.0.4"
