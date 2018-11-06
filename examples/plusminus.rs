@@ -1,4 +1,4 @@
-//! Exampleinspired from the example in https://github.com/antoyo/relm
+//! inspired from the example in https://github.com/antoyo/relm
 
 #![recursion_limit="4098"]
 

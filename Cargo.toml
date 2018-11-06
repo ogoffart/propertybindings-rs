@@ -1,8 +1,9 @@
 [package]
 name = "propertybindings"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["Olivier Goffart <ogoffart@woboq.com>"]
 build = "build.rs"
+description = "Experimental rust-based QML-like language."
 
 [dependencies]
 qmetaobject = "0.0.4"
@@ -12,5 +13,3 @@ cstr = "0.1.4"
 
 [build-dependencies]
 cpp_build = "0.5"
-
-
