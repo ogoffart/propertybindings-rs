@@ -2,15 +2,15 @@
 name = "propertybindings"
 version = "0.1.0"
 authors = ["Olivier Goffart <ogoffart@woboq.com>"]
-build = "../qmetaobject/build.rs"
+build = "build.rs"
 
 [dependencies]
-qmetaobject = { path = "../qmetaobject"}
-cpp = "0.4"
+qmetaobject = "0.0.4"
+cpp = "0.5"
 cstr = "0.1.4"
 
 
 [build-dependencies]
-cpp_build = "0.4"
+cpp_build = "0.5"
 
 
