@@ -8,15 +8,16 @@
 //! because there is no public API to get a text node)
 //! only the `items` module depends on Qt.
 
-#![recursion_limit="512"]
+#![recursion_limit = "512"]
 
-#[macro_use] extern crate cstr;
-
+#[macro_use]
+extern crate cstr;
 
 #[macro_use]
 extern crate qmetaobject;
 
-#[macro_use] extern crate cpp;
+#[macro_use]
+extern crate cpp;
 
 #[macro_use]
 pub mod properties;
@@ -26,5 +27,3 @@ pub mod anchors;
 pub mod rslm;
 pub mod items;
 pub mod quick;
-
-

@@ -1,11 +1,10 @@
 use std;
+use std::cell::{Cell, RefCell};
 use std::convert::From;
 use std::default::Default;
-use std::cell::{RefCell, Cell};
-use std::rc::{Rc,Weak};
 use std::ops::DerefMut;
 use std::ptr::NonNull;
-
+use std::rc::{Rc, Weak};
 
 // A double linked intrusive list.
 // This is unsafe to use.
@@ -13,26 +12,29 @@ use std::ptr::NonNull;
 // and that it is droped when it is destroyed.
 mod double_link {
 
-    use std::ptr::NonNull;
     use std::ptr;
+    use std::ptr::NonNull;
 
     pub trait LinkedList {
         type NodeItem;
-        unsafe fn next_ptr(node : NonNull<Self::NodeItem>) -> NonNull<Node<Self>>;
+        unsafe fn next_ptr(node: NonNull<Self::NodeItem>) -> NonNull<Node<Self>>;
     }
 
-    pub struct Node<L : LinkedList + ?Sized> {
-        next : *mut L::NodeItem,
-        prev : *mut *mut L::NodeItem,
+    pub struct Node<L: LinkedList + ?Sized> {
+        next: *mut L::NodeItem,
+        prev: *mut *mut L::NodeItem,
     }
 
-    impl<L : LinkedList + ?Sized> Default for Node<L> {
+    impl<L: LinkedList + ?Sized> Default for Node<L> {
         fn default() -> Self {
-            Node { next: ptr::null_mut(), prev: ptr::null_mut(), }
+            Node {
+                next: ptr::null_mut(),
+                prev: ptr::null_mut(),
+            }
         }
     }
 
-    impl<L : LinkedList + ?Sized> Drop for Node<L> {
+    impl<L: LinkedList + ?Sized> Drop for Node<L> {
         fn drop(&mut self) {
             if self.prev.is_null() {
                 return;
@@ -46,41 +48,41 @@ mod double_link {
         }
     }
 
-    struct NodeIter<L : LinkedList + ?Sized>(*mut L::NodeItem);
+    struct NodeIter<L: LinkedList + ?Sized>(*mut L::NodeItem);
 
-    impl<L : LinkedList + ?Sized> Iterator for NodeIter<L> {
+    impl<L: LinkedList + ?Sized> Iterator for NodeIter<L> {
         type Item = NonNull<L::NodeItem>;
         fn next(&mut self) -> Option<Self::Item> {
             let r = NonNull::new(self.0);
-            r.as_ref().map(|n| unsafe { self.0 = L::next_ptr(*n).as_ref().next });
+            r.as_ref()
+                .map(|n| unsafe { self.0 = L::next_ptr(*n).as_ref().next });
             return r;
         }
     }
 
-    pub struct Head<L : LinkedList + ?Sized>(*mut L::NodeItem);
+    pub struct Head<L: LinkedList + ?Sized>(*mut L::NodeItem);
 
-    impl<L : LinkedList + ?Sized> Default for Head<L> {
+    impl<L: LinkedList + ?Sized> Default for Head<L> {
         fn default() -> Self {
             Head(ptr::null_mut())
         }
     }
 
-    impl<L : LinkedList + ?Sized> Head<L> {
-
+    impl<L: LinkedList + ?Sized> Head<L> {
         pub unsafe fn append(&mut self, node: NonNull<L::NodeItem>) {
             let mut node_node = L::next_ptr(node);
             node_node.as_mut().next = self.0;
             node_node.as_mut().prev = &mut self.0 as *mut *mut L::NodeItem;
             if !self.0.is_null() {
-                L::next_ptr(NonNull::new_unchecked(self.0)).as_mut().prev
-                    = &mut node_node.as_mut().next as *mut _
+                L::next_ptr(NonNull::new_unchecked(self.0)).as_mut().prev =
+                    &mut node_node.as_mut().next as *mut _
             }
             self.0 = node.as_ptr();
         }
 
         // Not safe because it breaks if the list is modified while iterating.
         fn iter(&mut self) -> NodeIter<L> {
-            return NodeIter(self.0)
+            return NodeIter(self.0);
         }
 
         pub fn swap(&mut self, other: &mut Self) {
@@ -104,14 +106,15 @@ mod double_link {
         }
     }
 
-    impl<L : LinkedList + ?Sized> Iterator for Head<L> {
+    impl<L: LinkedList + ?Sized> Iterator for Head<L> {
         type Item = Box<L::NodeItem>;
         fn next(&mut self) -> Option<Self::Item> {
             NonNull::new(self.0).map(|n| unsafe {
                 let mut node_node = L::next_ptr(n);
                 self.0 = node_node.as_ref().next;
                 if !self.0.is_null() {
-                    L::next_ptr(NonNull::new_unchecked(self.0)).as_mut().prev = &mut self.0 as *mut _;
+                    L::next_ptr(NonNull::new_unchecked(self.0)).as_mut().prev =
+                        &mut self.0 as *mut _;
                 }
                 node_node.as_mut().prev = ::std::ptr::null_mut();
                 node_node.as_mut().next = ::std::ptr::null_mut();
@@ -120,12 +123,11 @@ mod double_link {
         }
     }
 
-    impl<L : LinkedList + ?Sized> Drop for Head<L> {
+    impl<L: LinkedList + ?Sized> Drop for Head<L> {
         fn drop(&mut self) {
             self.clear();
         }
     }
-
 
     #[cfg(test)]
     mod tests {
@@ -138,31 +140,60 @@ mod double_link {
         }
         impl LinkedList for TestList {
             type NodeItem = TestNode;
-            unsafe fn next_ptr(mut node : NonNull<Self::NodeItem>) -> NonNull<Node<Self>> {
+            unsafe fn next_ptr(mut node: NonNull<Self::NodeItem>) -> NonNull<Node<Self>> {
                 NonNull::new_unchecked(&mut node.as_mut().list as *mut _)
             }
         }
         impl TestNode {
-            fn new(v: u32) -> Self { TestNode { elem: v, ..Default::default() } }
+            fn new(v: u32) -> Self {
+                TestNode {
+                    elem: v,
+                    ..Default::default()
+                }
+            }
         }
 
         #[test]
         fn list_append() {
-            let mut l : Head<TestList> = Default::default();
+            let mut l: Head<TestList> = Default::default();
             assert_eq!(l.iter().count(), 0);
-            unsafe { l.append(NonNull::new_unchecked(Box::into_raw(Box::new(TestNode::new(10))))); }
+            unsafe {
+                l.append(NonNull::new_unchecked(Box::into_raw(Box::new(
+                    TestNode::new(10),
+                ))));
+            }
             assert_eq!(l.iter().count(), 1);
-            unsafe { l.append(NonNull::new_unchecked(Box::into_raw(Box::new(TestNode::new(20))))); }
+            unsafe {
+                l.append(NonNull::new_unchecked(Box::into_raw(Box::new(
+                    TestNode::new(20),
+                ))));
+            }
             assert_eq!(l.iter().count(), 2);
-            unsafe { l.append(NonNull::new_unchecked(Box::into_raw(Box::new(TestNode::new(30))))); }
+            unsafe {
+                l.append(NonNull::new_unchecked(Box::into_raw(Box::new(
+                    TestNode::new(30),
+                ))));
+            }
             assert_eq!(l.iter().count(), 3);
-            assert_eq!(l.iter().map( |x| unsafe{x.as_ref().elem} ).collect::<Vec<u32>>(), vec![30, 20, 10]);
+            assert_eq!(
+                l.iter()
+                    .map(|x| unsafe { x.as_ref().elem })
+                    .collect::<Vec<u32>>(),
+                vec![30, 20, 10]
+            );
             // take a ptr to the second element;
             let ptr = l.iter().nth(1).unwrap();
-            assert_eq!(unsafe {ptr.as_ref().elem}, 20);
-            unsafe { Box::from_raw(ptr.as_ptr()); }
+            assert_eq!(unsafe { ptr.as_ref().elem }, 20);
+            unsafe {
+                Box::from_raw(ptr.as_ptr());
+            }
             assert_eq!(l.iter().count(), 2);
-            assert_eq!(l.iter().map( |x| unsafe{x.as_ref().elem} ).collect::<Vec<u32>>(), vec![30, 10]);
+            assert_eq!(
+                l.iter()
+                    .map(|x| unsafe { x.as_ref().elem })
+                    .collect::<Vec<u32>>(),
+                vec![30, 10]
+            );
         }
     }
 
@@ -177,7 +208,7 @@ struct Link {
     elem: WeakPropertyRef,
 }
 impl Link {
-    fn new(elem : WeakPropertyRef) -> Self {
+    fn new(elem: WeakPropertyRef) -> Self {
         Link {
             notify_list: double_link::Node::default(),
             sender_list: double_link::Node::default(),
@@ -188,24 +219,26 @@ impl Link {
 
 impl double_link::LinkedList for NotifyList {
     type NodeItem = Link;
-    unsafe fn next_ptr(mut node : NonNull<Self::NodeItem>) -> NonNull<double_link::Node<Self>> {
+    unsafe fn next_ptr(mut node: NonNull<Self::NodeItem>) -> NonNull<double_link::Node<Self>> {
         NonNull::new_unchecked(&mut node.as_mut().notify_list as *mut _)
     }
 }
 
 impl double_link::LinkedList for SenderList {
     type NodeItem = Link;
-    unsafe fn next_ptr(mut node : NonNull<Self::NodeItem>) -> NonNull<double_link::Node<Self>> {
+    unsafe fn next_ptr(mut node: NonNull<Self::NodeItem>) -> NonNull<double_link::Node<Self>> {
         NonNull::new_unchecked(&mut node.as_mut().sender_list as *mut _)
     }
 }
-
 
 type WeakPropertyRef = Weak<PropertyBase>;
 
 thread_local!(static CURRENT_PROPERTY: RefCell<Option<WeakPropertyRef>> = Default::default());
 
-fn run_with_current<'a, U, F>(dep: Weak<PropertyBase + 'a>, f : F) -> U where F : Fn()->U  {
+fn run_with_current<'a, U, F>(dep: Weak<PropertyBase + 'a>, f: F) -> U
+where
+    F: Fn() -> U,
+{
     let mut old = Some(unsafe {
         // We only leave this for the time we are on this function, so the lifetime is fine
         std::mem::transmute::<Weak<PropertyBase + 'a>, Weak<PropertyBase + 'static>>(dep)
@@ -224,13 +257,14 @@ fn run_with_current<'a, U, F>(dep: Weak<PropertyBase + 'a>, f : F) -> U where F 
 }
 
 trait PropertyBase {
-    fn update<'a>(&'a self, dep : Weak<PropertyBase + 'a>);
+    fn update<'a>(&'a self, dep: Weak<PropertyBase + 'a>);
     fn add_dependency(&self, link: NonNull<Link>);
     fn add_rev_dependency(&self, link: NonNull<Link>);
     fn update_dependencies(&self);
 
-
-    fn description(&self) -> String { String::default() }
+    fn description(&self) -> String {
+        String::default()
+    }
 
     fn accessed(&self) -> bool {
         CURRENT_PROPERTY.with(|cur_dep| {
@@ -252,35 +286,54 @@ trait PropertyBase {
 /// A binding is a function that returns a value of type T
 pub trait PropertyBindingFn<T> {
     fn run(&self) -> Option<T>;
-    fn description(&self) -> String { String::default() }
+    fn description(&self) -> String {
+        String::default()
+    }
 }
-impl<F, T> PropertyBindingFn<T> for F where F : Fn()->T {
-    fn run(&self) -> Option<T> { Some((*self)()) }
+impl<F, T> PropertyBindingFn<T> for F
+where
+    F: Fn() -> T,
+{
+    fn run(&self) -> Option<T> {
+        Some((*self)())
+    }
 }
 // Ideallly this should just be
 // impl<F, T> PropertyBindingFn<T> for F where F : Fn()->Option<T>
 // But that'd be ambiguous,  so wrap it in an option, even if it is ridiculous.
 // Fixme: is there a better solution
-impl<F, T> PropertyBindingFn<T> for Option<F> where F : Fn()->Option<T> {
-    fn run(&self) -> Option<T> { self.as_ref().and_then(|x|x()) }
+impl<F, T> PropertyBindingFn<T> for Option<F>
+where
+    F: Fn() -> Option<T>,
+{
+    fn run(&self) -> Option<T> {
+        self.as_ref().and_then(|x| x())
+    }
 }
 // This one is usefull for debugging.
-impl<F, T> PropertyBindingFn<T> for (String, F) where F : Fn()->Option<T> {
-    fn run(&self) -> Option<T> { (self.1)() }
-    fn description(&self) -> String { (self.0).clone() }
+impl<F, T> PropertyBindingFn<T> for (String, F)
+where
+    F: Fn() -> Option<T>,
+{
+    fn run(&self) -> Option<T> {
+        (self.1)()
+    }
+    fn description(&self) -> String {
+        (self.0).clone()
+    }
 }
 
 #[derive(Default)]
 struct PropertyImpl<'a, T> {
     value: RefCell<T>,
-    binding : RefCell<Option<Box<PropertyBindingFn<T> + 'a>>>,
-    dependencies : RefCell<double_link::Head<NotifyList>>,
-    rev_dep : RefCell<double_link::Head<SenderList>>,
+    binding: RefCell<Option<Box<PropertyBindingFn<T> + 'a>>>,
+    dependencies: RefCell<double_link::Head<NotifyList>>,
+    rev_dep: RefCell<double_link::Head<SenderList>>,
     updating: Cell<bool>,
-    callbacks: RefCell<Vec<Box<FnMut(&T) +'a>>>
+    callbacks: RefCell<Vec<Box<FnMut(&T) + 'a>>>,
 }
-impl<'a, T> PropertyBase for PropertyImpl<'a, T>  {
-    fn update<'b>(&'b self, dep : Weak<PropertyBase + 'b>) {
+impl<'a, T> PropertyBase for PropertyImpl<'a, T> {
+    fn update<'b>(&'b self, dep: Weak<PropertyBase + 'b>) {
         if let Some(ref f) = *self.binding.borrow() {
             if self.updating.get() {
                 panic!("Circular dependency found : {}", self.description());
@@ -298,11 +351,15 @@ impl<'a, T> PropertyBase for PropertyImpl<'a, T>  {
     }
     fn add_dependency(&self, link: NonNull<Link>) {
         //println!("ADD DEPENDENCY {} -> {}",  self.description(), dep.upgrade().map_or("NONE".into(), |x| x.description()));
-        unsafe { self.dependencies.borrow_mut().append(link); }
+        unsafe {
+            self.dependencies.borrow_mut().append(link);
+        }
     }
     fn add_rev_dependency(&self, link: NonNull<Link>) {
         //println!("ADD DEPENDENCY {} -> {}",  self.description(), dep.upgrade().map_or("NONE".into(), |x| x.description()));
-        unsafe { self.rev_dep.borrow_mut().append(link); }
+        unsafe {
+            self.rev_dep.borrow_mut().append(link);
+        }
     }
 
     fn update_dependencies(&self) {
@@ -333,13 +390,13 @@ impl<'a, T> PropertyBase for PropertyImpl<'a, T>  {
     }
 }
 
-#[derive(Default,Clone)]
+#[derive(Default, Clone)]
 pub struct WeakProperty<'a, T> {
-    d : Weak<PropertyImpl<'a, T>>
+    d: Weak<PropertyImpl<'a, T>>,
 }
-impl<'a, T  : Default + Clone> WeakProperty<'a, T>  {
+impl<'a, T: Default + Clone> WeakProperty<'a, T> {
     pub fn get(&self) -> Option<T> {
-        self.d.upgrade().map(|x| (Property{ d: x}).get())
+        self.d.upgrade().map(|x| (Property { d: x }).get())
     }
 }
 
@@ -348,30 +405,33 @@ impl<'a, T  : Default + Clone> WeakProperty<'a, T>  {
 // Fixme! the property should maybe be computed lazily, or the graph studied to avoid unnecesseray re-computation.
 #[derive(Default)]
 pub struct Property<'a, T> {
-    d : Rc<PropertyImpl<'a, T>>
+    d: Rc<PropertyImpl<'a, T>>,
 }
-impl<'a, T  : Default + Clone> Property<'a, T>  {
-    pub fn from_binding<F : PropertyBindingFn<T> + 'a>(f : F) ->Property<'a, T> {
-        let d = Rc::new(PropertyImpl{ binding: RefCell::new(Some(Box::new(f))), ..Default::default()} );
+impl<'a, T: Default + Clone> Property<'a, T> {
+    pub fn from_binding<F: PropertyBindingFn<T> + 'a>(f: F) -> Property<'a, T> {
+        let d = Rc::new(PropertyImpl {
+            binding: RefCell::new(Some(Box::new(f))),
+            ..Default::default()
+        });
         let w = Rc::downgrade(&d);
         d.update(w);
-        Property{ d: d }
+        Property { d: d }
     }
 
     /// Set the value, and notify all the dependent property so their binding can be re-evaluated
-    pub fn set(&self, t : T) {
+    pub fn set(&self, t: T) {
         *self.d.binding.borrow_mut() = None;
         *self.d.value.borrow_mut() = t;
         // FIXME! don't updae dependency if the property don't change.
         self.d.update_dependencies();
     }
-    pub fn set_binding<F : PropertyBindingFn<T> + 'a>(&self, f : F) {
+    pub fn set_binding<F: PropertyBindingFn<T> + 'a>(&self, f: F) {
         *self.d.binding.borrow_mut() = Some(Box::new(f));
         let w = Rc::downgrade(&self.d);
         self.d.update(w);
     }
 
-/*
+    /*
     pub fn borrow<'b>(&'b self) -> Ref<'b, T> {
         self.d.accessed();
         let d = self.d.borrow();
@@ -391,29 +451,39 @@ impl<'a, T  : Default + Clone> Property<'a, T>  {
     }
 
     pub fn as_weak(&self) -> WeakProperty<'a, T> {
-        WeakProperty{ d: Rc::downgrade(&self.d) }
+        WeakProperty {
+            d: Rc::downgrade(&self.d),
+        }
     }
 
     /// One can add callback which are being called when the property changes.
-    pub fn on_notify<F>(&self, callback: F) where  F : FnMut(&T) + 'a {
+    pub fn on_notify<F>(&self, callback: F)
+    where
+        F: FnMut(&T) + 'a,
+    {
         self.d.callbacks.borrow_mut().push(Box::new(callback));
     }
 }
-impl<'a, T : Default> From<T> for Property<'a, T> {
+impl<'a, T: Default> From<T> for Property<'a, T> {
     fn from(t: T) -> Self {
-        Property{ d: Rc::new(PropertyImpl{ value : RefCell::new(t), ..Default::default() }) }
+        Property {
+            d: Rc::new(PropertyImpl {
+                value: RefCell::new(t),
+                ..Default::default()
+            }),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
 
-    use std::rc::{Rc};
-    use std::cell::{RefCell, Cell};
     use super::*;
+    use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
 
     #[derive(Default)]
-    struct Rectangle<'a>  {
+    struct Rectangle<'a> {
         /*
         property<rectangle*> parent = nullptr;
         property<int> width = 150;
@@ -426,29 +496,30 @@ mod tests {
             else
             return std::string("red");
         };*/
-
-        width : Property<'a, u32>,
-        height : Property<'a, u32>,
-        area : Property<'a, u32>,
-
+        width: Property<'a, u32>,
+        height: Property<'a, u32>,
+        area: Property<'a, u32>,
     }
 
-/*
+    /*
     impl<'a> Rectangle<'a> {
         fn new()->Self {
             Rectangle  { ..Default::default() }
         }
     }*/
 
-
     #[test]
     fn it_works() {
         let rec = Rc::new(RefCell::new(Rectangle::default()));
         rec.borrow_mut().width = Property::from(2);
         let wr = Rc::downgrade(&rec);
-        rec.borrow_mut().area = Property::from_binding(move || wr.upgrade().map(|wr| wr.borrow().width.value() * wr.borrow().height.value()).unwrap());
+        rec.borrow_mut().area = Property::from_binding(move || {
+            wr.upgrade()
+                .map(|wr| wr.borrow().width.value() * wr.borrow().height.value())
+                .unwrap()
+        });
         rec.borrow().height.set(4);
-        assert_eq!(rec.borrow().area.value(), 4*2);
+        assert_eq!(rec.borrow().area.value(), 4 * 2);
     }
 
     #[test]
@@ -474,11 +545,10 @@ pub struct Signal<'a> {
     callbacks: RefCell<Vec<Box<PropertyBindingFn<()> + 'a>>>,
 }
 
-impl<'a> Signal<'a>  {
-    pub fn set_binding<F : PropertyBindingFn<()> + 'a>(&self, f : F) {
+impl<'a> Signal<'a> {
+    pub fn set_binding<F: PropertyBindingFn<()> + 'a>(&self, f: F) {
         self.callbacks.borrow_mut().push(Box::new(f));
     }
-
 
     pub fn emit(&self) {
         for cb in self.callbacks.borrow_mut().iter_mut() {
@@ -486,4 +556,3 @@ impl<'a> Signal<'a>  {
         }
     }
 }
-

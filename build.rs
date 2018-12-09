@@ -48,9 +48,24 @@ fn main() {
         macos_lib_search,
         qt_library_path.trim()
     );
-    println!("cargo:rustc-link-lib{}=Qt{}Widgets", macos_lib_search, macos_lib_framework);
-    println!("cargo:rustc-link-lib{}=Qt{}Gui", macos_lib_search, macos_lib_framework);
-    println!("cargo:rustc-link-lib{}=Qt{}Core", macos_lib_search, macos_lib_framework);
-    println!("cargo:rustc-link-lib{}=Qt{}Quick", macos_lib_search, macos_lib_framework);
-    println!("cargo:rustc-link-lib{}=Qt{}Qml", macos_lib_search, macos_lib_framework);
+    println!(
+        "cargo:rustc-link-lib{}=Qt{}Widgets",
+        macos_lib_search, macos_lib_framework
+    );
+    println!(
+        "cargo:rustc-link-lib{}=Qt{}Gui",
+        macos_lib_search, macos_lib_framework
+    );
+    println!(
+        "cargo:rustc-link-lib{}=Qt{}Core",
+        macos_lib_search, macos_lib_framework
+    );
+    println!(
+        "cargo:rustc-link-lib{}=Qt{}Quick",
+        macos_lib_search, macos_lib_framework
+    );
+    println!(
+        "cargo:rustc-link-lib{}=Qt{}Qml",
+        macos_lib_search, macos_lib_framework
+    );
 }

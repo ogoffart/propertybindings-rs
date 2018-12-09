@@ -1,4 +1,3 @@
-
 #[macro_export]
 macro_rules! rsml {
     // Declare a struct (deprecated, see new one later)
@@ -186,8 +185,6 @@ macro_rules! rsml {
 
 }
 
-
-
 /*
 
 
@@ -218,9 +215,6 @@ macro_rules! rsml_init {
 }
 */
 
-
-
-
 #[cfg(test)]
 mod tests {
 
@@ -234,16 +228,14 @@ mod tests {
 
     #[test]
     fn test_rsml() {
-
         let rec = Rectangle2::new(); // Rc::new(RefCell::new(Rectangle2::default()));
-//         let wr = Rc::downgrade(&rec);
-//         rec.borrow_mut().area = Property::from_binding(move || wr.upgrade().map(|wr| wr.borrow().width.value() * wr.borrow().height.value()).unwrap());
+                                     //         let wr = Rc::downgrade(&rec);
+                                     //         rec.borrow_mut().area = Property::from_binding(move || wr.upgrade().map(|wr| wr.borrow().width.value() * wr.borrow().height.value()).unwrap());
         rec.height.set(4);
-        assert_eq!(rec.area.value(), 4*2);
+        assert_eq!(rec.area.value(), 4 * 2);
         rec.height.set(8);
-        assert_eq!(rec.area.value(), 8*2);
+        assert_eq!(rec.area.value(), 8 * 2);
     }
-
 
     #[test]
     fn test_rsml_init() {
@@ -252,13 +244,12 @@ mod tests {
                 height: Rectangle2.width.value() * 3,
             }
         };
-        assert_eq!(rec.area.value(), 3*2*2);
+        assert_eq!(rec.area.value(), 3 * 2 * 2);
         rec.width.set(8);
-        assert_eq!(rec.area.value(), 3*8*8);
+        assert_eq!(rec.area.value(), 3 * 8 * 8);
     }
 
-
-/*
+    /*
     rsml!{
         struct Item {
             width: u32,

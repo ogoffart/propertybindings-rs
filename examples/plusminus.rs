@@ -1,8 +1,9 @@
 //! inspired from the example in https://github.com/antoyo/relm
 
-#![recursion_limit="4098"]
+#![recursion_limit = "4098"]
 
-#[macro_use] extern crate propertybindings;
+#[macro_use]
+extern crate propertybindings;
 extern crate qmetaobject;
 use std::rc::Rc;
 
@@ -10,13 +11,10 @@ use propertybindings::properties::Property;
 
 #[derive(Default)]
 struct PlusMinus {
-    counter : Property<'static, i32>,
+    counter: Property<'static, i32>,
 }
 
-
-
 impl propertybindings::quick::ItemFactory for PlusMinus {
-
     fn create() -> Rc<propertybindings::items::Item<'static>> {
         use propertybindings::items::*;
         use qmetaobject::{QColor, QString};
@@ -40,7 +38,6 @@ impl propertybindings::quick::ItemFactory for PlusMinus {
         let model1 = model.clone();
         let model2 = model.clone();
 
-
         rsml!(
             ColumnLayout {
                 Button {
@@ -59,9 +56,7 @@ impl propertybindings::quick::ItemFactory for PlusMinus {
             }
         )
     }
-
 }
-
 
 fn main() {
     propertybindings::quick::show_window::<PlusMinus>();

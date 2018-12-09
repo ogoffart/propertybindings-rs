@@ -1,13 +1,11 @@
-use qmetaobject::{QQuickItem, QRectF, QObject};
-use qmetaobject::scenegraph::{SGNode,ContainerNode};
 use super::items::{Item, MouseEvent};
-use std::rc::{Rc};
-use std::ffi::{CString};
+use qmetaobject::scenegraph::{ContainerNode, SGNode};
+use qmetaobject::{QObject, QQuickItem, QRectF};
 use std::any::TypeId;
 use std::collections::hash_map::DefaultHasher;
+use std::ffi::CString;
 use std::hash::{Hash, Hasher};
-
-
+use std::rc::Rc;
 
 /// Use as a factory for RSMLItem
 pub trait ItemFactory {
@@ -16,12 +14,12 @@ pub trait ItemFactory {
 
 /// A QQuickItem which is showing an Item
 #[derive(QObject)]
-pub struct RSMLItem<T : ItemFactory + 'static> {
+pub struct RSMLItem<T: ItemFactory + 'static> {
     base: qt_base_class!(trait QQuickItem),
-    node : Option<Rc<Item<'static> + 'static>>,
+    node: Option<Rc<Item<'static> + 'static>>,
     _phantom: ::std::marker::PhantomData<T>,
 }
-impl<T : ItemFactory + 'static> RSMLItem<T> {
+impl<T: ItemFactory + 'static> RSMLItem<T> {
     fn set_node(&mut self, node: Rc<Item<'static>>) {
         node.init(self);
         self.node = Some(node);
@@ -37,20 +35,25 @@ impl<T : ItemFactory + 'static> RSMLItem<T> {
         (self as &QQuickItem).update();
     }
 }
-impl<T : ItemFactory + 'static>  Default for RSMLItem<T> {
-    fn default() -> Self { RSMLItem{ base: Default::default(), node: None, _phantom: Default::default() } }
+impl<T: ItemFactory + 'static> Default for RSMLItem<T> {
+    fn default() -> Self {
+        RSMLItem {
+            base: Default::default(),
+            node: None,
+            _phantom: Default::default(),
+        }
+    }
 }
 
-impl<T : ItemFactory + 'static> QQuickItem for RSMLItem<T>
-{
-    fn update_paint_node(&mut self, mut node : SGNode<ContainerNode> ) -> SGNode<ContainerNode> {
+impl<T: ItemFactory + 'static> QQuickItem for RSMLItem<T> {
+    fn update_paint_node(&mut self, mut node: SGNode<ContainerNode>) -> SGNode<ContainerNode> {
         if let Some(ref i) = self.node {
             node = i.update_paint_node(node, self);
         }
         node
     }
 
-    fn geometry_changed(&mut self, new_geometry : QRectF, _old_geometry : QRectF) {
+    fn geometry_changed(&mut self, new_geometry: QRectF, _old_geometry: QRectF) {
         if let Some(ref i) = self.node {
             i.geometry().width.set(new_geometry.width);
             i.geometry().height.set(new_geometry.height);
@@ -74,8 +77,7 @@ impl<T : ItemFactory + 'static> QQuickItem for RSMLItem<T>
 }
 
 /// Show a QQuickWindow showing an instance of the item created by the ItemFactory
-pub fn show_window<T : ItemFactory + 'static>() {
-
+pub fn show_window<T: ItemFactory + 'static>() {
     // Compute a somehow unique type name for this type
     let mut hasher = DefaultHasher::new();
     TypeId::of::<T>().hash(&mut hasher);
@@ -85,7 +87,9 @@ pub fn show_window<T : ItemFactory + 'static>() {
     ::qmetaobject::qml_register_type::<RSMLItem<T>>(&name, 1, 0, &name);
     let mut engine = ::qmetaobject::QmlEngine::new();
 
-    engine.load_data(format!(r#"
+    engine.load_data(
+        format!(
+            r#"
 import QtQuick 2.0;
 import QtQuick.Window 2.0;
 import {name} 1.0;
@@ -93,7 +97,9 @@ Window {{
     visible: true;
     {name} {{ anchors.fill: parent; }}
 }}
-        "#, name = name.to_str().unwrap()).into());
+        "#,
+            name = name.to_str().unwrap()
+        ).into(),
+    );
     engine.exec();
-
 }
