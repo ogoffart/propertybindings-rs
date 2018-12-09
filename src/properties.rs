@@ -471,16 +471,18 @@ mod tests {
 /// A Signal.
 #[derive(Default)]
 pub struct Signal<'a> {
-    callbacks: RefCell<Vec<Box<FnMut() + 'a>>>,
+    callbacks: RefCell<Vec<Box<PropertyBindingFn<()> + 'a>>>,
 }
 
 impl<'a> Signal<'a>  {
-    pub fn set_binding<F : FnMut() + 'a>(&self, f : F) {
+    pub fn set_binding<F : PropertyBindingFn<()> + 'a>(&self, f : F) {
         self.callbacks.borrow_mut().push(Box::new(f));
     }
+
+
     pub fn emit(&self) {
         for cb in self.callbacks.borrow_mut().iter_mut() {
-            (*cb)();
+            cb.run();
         }
     }
 }

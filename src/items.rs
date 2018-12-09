@@ -97,6 +97,15 @@ pub trait ItemContainer<'a>  {
 }
 
 
+impl<'a, T, I:Item<'a> + 'a> Item<'a> for T where T: ::std::ops::Deref<Target = I> {
+    fn geometry(&self) -> &Geometry<'a> { ::std::ops::Deref::deref(self).geometry() }
+    fn layout_info(&self) -> &LayoutInfo<'a> { ::std::ops::Deref::deref(self).layout_info() }
+    fn update_paint_node(&self, node : SGNode<ContainerNode>, item: &QQuickItem)
+        -> SGNode<ContainerNode> { ::std::ops::Deref::deref(self).update_paint_node(node, item) }
+    fn init(&self, item: &(QQuickItem + 'a)) { (**self).init(item) }
+    fn mouse_event(&self, event : MouseEvent) -> bool {  ::std::ops::Deref::deref(self).mouse_event(event)  }
+}
+
 mod layout_engine {
 
 use std::ops::Add;

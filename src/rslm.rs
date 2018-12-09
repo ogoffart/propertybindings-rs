@@ -1,20 +1,25 @@
 
 #[macro_export]
 macro_rules! rsml {
-    // Declare a struct
-    ($(#[$($attrs:tt)*])* pub($($vis:tt)*) struct $name:ident {$($body:tt)*}) => {
-        rsml! { @parse_fields $(#[$($attrs)*])*, [pub($($vis)*)], $name, $($body)* }
+    // Declare a struct (deprecated, see new one later)
+    ($(#[$($attrs:tt)*])* pub($($vis:tt)*) struct $name:ident $(: $derive:ident)* {$($body:tt)*}) => {
+        rsml! { @parse_fields $(#[$($attrs)*])*, [pub($($vis)*)], $name $(: $derive)*, $($body)* }
     };
-    ($(#[$($attrs:tt)*])* pub struct $name:ident {$($body:tt)*}) => {
-        rsml! { @parse_fields $(#[$($attrs)*])*, [pub], $name, $($body)* }
+    ($(#[$($attrs:tt)*])* pub struct $name:ident $(: $derive:ident)* {$($body:tt)*}) => {
+        rsml! { @parse_fields $(#[$($attrs)*])*, [pub], $name $(: $derive)*, $($body)* }
     };
-    ($(#[$($attrs:tt)*])* struct $name:ident {$($body:tt)*}) => {
-        rsml! { @parse_fields $(#[$($attrs)*])*, [], $name, $($body)* }
+    ($(#[$($attrs:tt)*])* struct $name:ident $(: $derive:ident)* {$($body:tt)*}) => {
+        rsml! { @parse_fields $(#[$($attrs)*])*, [], $name $(: $derive)* , $($body)* }
     };
 
-    (@parse_fields $(#[$attrs:meta])*, [$($vis:tt)*], $name:ident,
-            $(/*$fvis:vis*/ $field:ident : $typ:ty  $(= $value:expr )* ),* $(,)*) => {
+    (@parse_fields $(#[$attrs:meta])*, [$($vis:tt)*], $name:ident $(: $derive:ident)*,
+            $(@signal /*$svis:vis*/ $signal:ident),* $(,)*
+            $(/*$fvis:vis*/ $field:ident : $typ:ty  $(= $value:expr )* ),* $(,)*
+            $(; $($sub_items:tt)* )*
+            ) => {
         $(#[$attrs])* $($vis)* struct $name<'a> {
+            $( DeriveItem : ::std::rc::Rc<$derive<'a>> ,)*
+            $( pub $signal : $crate::properties::Signal<'a>, )*
             $( pub $field : $crate::properties::Property<'a, $typ> ),*
         }
         /*impl<'a> Default for $name<'a> {
@@ -26,11 +31,28 @@ macro_rules! rsml {
         }*/
         impl<'a> $name<'a> {
             pub fn new() -> ::std::rc::Rc<Self> {
-                let r = ::std::rc::Rc::new(Self { $( $field: rsml!{@parse_default $($value)*} ),* });
+                $(let $derive = rsml!(@init_derive $name $derive { $($sub_items)* }) ;)*
+                let r = ::std::rc::Rc::new(Self {
+                    $( DeriveItem : $derive.0 ,)*
+                    $( $signal: Default::default(), )*
+                    $( $field: rsml!{@parse_default $($value)*} ),* }
+                );
+                $(
+                    $derive.1.borrow_mut().$name = ::std::rc::Rc::downgrade(&r);
+                    ($derive.2)();
+                )*
                 $(rsml!{ @init_field r, $name, $field, $($value)* })*
                 r
             }
         }
+        $(
+            impl<'a> ::std::ops::Deref for $name<'a> {
+                type Target = $derive<'a>;
+                fn deref(&self) -> &Self::Target {
+                    &self.DeriveItem
+                }
+            }
+        )*
     };
 
     //(@init_field $r:ident, $field:ident, = |$s:ident| $bind:expr) => {}
@@ -51,10 +73,27 @@ macro_rules! rsml {
     //(@parse_default = $value:expr) => { Property::from($value) };
     (@parse_default $($x:tt)*) => { Default::default() };
 
+    (@init_derive $parent:ident $name:ident { $($rest:tt)* }) => {
+        rsml!{@find_all_id (parse_as_declare_start {$parent $name, $($rest)*}) [] $name => $($rest)* }
+    };
+
+    (@parse_as_declare_start {$parent:ident $name:ident, $($rest:tt)*} [$(($ids:tt $ids_ty:ident))*]) => { {
+        #[derive(Default)]
+        #[allow(non_snake_case)]
+        struct IdsContainer<'a> {
+            $($ids: ::std::rc::Weak<$ids_ty<'a>> ,)*
+            $parent : ::std::rc::Weak<$parent<'a>> ,
+        }
+        #[allow(unused_variables)]
+        let container = ::std::rc::Rc::new(::std::cell::RefCell::new(IdsContainer::default()));
+        let (r, init) = rsml!{@parse_as_initialize (parse_as_initialize_end { $name container [$parent $($ids)*]}), fields: [], sub_items: [], id: [], $($rest)* };
+        (r, container, init)
+    } };
+
     //---------------------------------------------------------------------------------------------
 
     // Initialize an object
-    ($name:ident { $($rest:tt)* } ) => {
+    ($name:ident { $($rest:tt)* }) => {
         rsml!{@find_all_id (parse_as_initialize_start {$name, $($rest)*}) [] $name => $($rest)* }
     };
 
