@@ -184,8 +184,12 @@ pub fn do_layout(info : &[ItemInfo], total : ItemInfo, spacing : Coord, size : C
 
 }
 
+macro_rules! declare_box_layout{
+    ($ColumnLayout:ident, $x:ident, $width:ident, $minimum_width:ident, $maximum_width:ident, $preferred_width:ident,
+        $y:ident, $height:ident, $minimum_height:ident, $maximum_height:ident, $preferred_height:ident) => {
+
 #[derive(Default)]
-pub struct ColumnLayout<'a> {
+pub struct $ColumnLayout<'a> {
     pub geometry : Geometry<'a>,
     pub layout_info: LayoutInfo<'a>,
     pub spacing: Property<'a, f64>,
@@ -193,7 +197,7 @@ pub struct ColumnLayout<'a> {
     children: RefCell<Vec<Rc<Item<'a> + 'a>>>,
     positions: Property<'a, Vec<layout_engine::ItemResult>>,
 }
-impl<'a> Item<'a> for ColumnLayout<'a> {
+impl<'a> Item<'a> for $ColumnLayout<'a> {
     fn geometry(&self) -> &Geometry<'a> { &self.geometry }
     fn layout_info(&self) -> &LayoutInfo<'a> { &self.layout_info }
 
@@ -228,54 +232,54 @@ impl<'a> Item<'a> for ColumnLayout<'a> {
 
 }
 
-impl<'a> ItemContainer<'a> for Rc<ColumnLayout<'a>> {
+impl<'a> ItemContainer<'a> for Rc<$ColumnLayout<'a>> {
     fn add_child(&self, child : Rc<Item<'a> + 'a>) {
         self.children.borrow_mut().push(child);
-        ColumnLayout::build_layout(self);
+        $ColumnLayout::build_layout(self);
     }
 }
 
-impl<'a> ColumnLayout<'a> {
+impl<'a> $ColumnLayout<'a> {
     pub fn new() -> Rc<Self> { Default::default() }
 
     fn build_layout(this : &Rc<Self>) {
 
         // The minimum width is the max of the minimums
         let w = Rc::downgrade(this);
-        this.layout_info.minimum_width.set_binding(move || w.upgrade().map_or(0.,|x| {
-            x.children.borrow().iter().map(|i| i.layout_info().minimum_width.get())
+        this.layout_info.$minimum_width.set_binding(move || w.upgrade().map_or(0.,|x| {
+            x.children.borrow().iter().map(|i| i.layout_info().$minimum_width.get())
                 .fold(0., f64::max)
         }));
 
         // The minimum height is the sum of the minimums
         let w = Rc::downgrade(this);
-        this.layout_info.minimum_height.set_binding(move || w.upgrade().map_or(0.,|x| {
-            x.children.borrow().iter().map(|i| i.layout_info().minimum_height.get())
+        this.layout_info.$minimum_height.set_binding(move || w.upgrade().map_or(0.,|x| {
+            x.children.borrow().iter().map(|i| i.layout_info().$minimum_height.get())
                 .sum()
         }));
 
         // The maximum width is the min of the maximums
         let w = Rc::downgrade(this);
-        this.layout_info.maximum_width.set_binding(move || w.upgrade().map_or(0., |x| {
-            x.children.borrow().iter().map(|i| i.layout_info().maximum_width.get())
+        this.layout_info.$maximum_width.set_binding(move || w.upgrade().map_or(0., |x| {
+            x.children.borrow().iter().map(|i| i.layout_info().$maximum_width.get())
                 .fold(std::f64::MAX, f64::min)
         }));
         // The maximum height is the sum of the maximums (assume it saturates)
         let w = Rc::downgrade(this);
-        this.layout_info.maximum_height.set_binding(move || w.upgrade().map_or(0., |x| {
-            x.children.borrow().iter().map(|i| i.layout_info().maximum_height.get())
+        this.layout_info.$maximum_height.set_binding(move || w.upgrade().map_or(0., |x| {
+            x.children.borrow().iter().map(|i| i.layout_info().$maximum_height.get())
                 .sum()
         }));
 
         // preferred width is the minimum width
         let w = Rc::downgrade(this);
-        this.layout_info.preferred_width.set_binding(Some(
-            move || Some(w.upgrade()?.layout_info.minimum_width.get())));
+        this.layout_info.$preferred_width.set_binding(Some(
+            move || Some(w.upgrade()?.layout_info.$minimum_width.get())));
 
         // preferred height is the sum of preferred height
         let w = Rc::downgrade(this);
-        this.layout_info.preferred_height.set_binding(move || w.upgrade().map_or(0., |x| {
-            x.children.borrow().iter().map(|i| i.layout_info().preferred_height.get())
+        this.layout_info.$preferred_height.set_binding(move || w.upgrade().map_or(0., |x| {
+            x.children.borrow().iter().map(|i| i.layout_info().$preferred_height.get())
                 .sum()
         }));
 
@@ -284,27 +288,37 @@ impl<'a> ColumnLayout<'a> {
         this.positions.set_binding(move || w.upgrade().map_or(Vec::default(), |w|{
             let v = w.children.borrow().iter().map(|x| {
                 layout_engine::ItemInfo {
-                    min : x.layout_info().minimum_height.get(),
-                    max : x.layout_info().maximum_height.get(),
-                    preferred : x.layout_info().preferred_height.get(),
+                    min : x.layout_info().$minimum_height.get(),
+                    max : x.layout_info().$maximum_height.get(),
+                    preferred : x.layout_info().$preferred_height.get(),
                     expand : 1, // FIXME
                 }
             }).collect::<Vec<_>>();
-            layout_engine::do_layout(&v, layout_engine::compute_total_info(&v, 0.), 0., w.geometry.height())
+            layout_engine::do_layout(&v, layout_engine::compute_total_info(&v, 0.), 0., w.geometry.$height())
         }));
 
         // Set the sizes
         for (idx, x) in this.children.borrow().iter().enumerate() {
             let w = Rc::downgrade(this);
-            x.geometry().width.set_binding(Some(move || Some(w.upgrade()?.geometry().width())));
-            x.geometry().x.set_binding(|| 0.);
+            x.geometry().$width.set_binding(Some(move || Some(w.upgrade()?.geometry().$width())));
+            x.geometry().$x.set_binding(|| 0.);
             let w = Rc::downgrade(this);
-            x.geometry().height.set_binding(Some(move || Some(w.upgrade()?.positions.get().get(idx)?.size)));
+            x.geometry().$height.set_binding(Some(move || Some(w.upgrade()?.positions.get().get(idx)?.size)));
             let w = Rc::downgrade(this);
-            x.geometry().y.set_binding(Some(move || Some(w.upgrade()?.positions.get().get(idx)?.pos)));
+            x.geometry().$y.set_binding(Some(move || Some(w.upgrade()?.positions.get().get(idx)?.pos)));
         }
     }
 }
+
+    };
+}
+
+
+declare_box_layout!(ColumnLayout, x, width, minimum_width, maximum_width, preferred_width,
+        y, height, minimum_height, maximum_height, preferred_height);
+
+declare_box_layout!(RowLayout, y, height, minimum_height, maximum_height, preferred_height,
+        x, width, minimum_width, maximum_width, preferred_width);
 
 #[test]
 fn test_layout() {
