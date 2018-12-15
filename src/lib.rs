@@ -21,7 +21,7 @@ extern crate cpp;
 
 #[macro_use]
 pub mod properties;
-pub use properties::*;
+pub use crate::properties::*;
 pub mod anchors;
 #[macro_use]
 pub mod rslm;

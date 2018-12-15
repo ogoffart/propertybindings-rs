@@ -12,7 +12,7 @@ pub struct AnchorElement<'a, Tag: 'a, F: PropertyBindingFn<f64> + 'a> {
 }
 pub trait AnchorCanAdd<'a, Tag, F> {
     type Output;
-    fn add(self, F) -> Self::Output;
+    fn add(self, _: F) -> Self::Output;
 }
 impl<'a, Tag: 'a, F> AnchorCanAdd<'a, Tag, F> for ()
 where
