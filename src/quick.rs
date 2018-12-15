@@ -9,18 +9,18 @@ use std::rc::Rc;
 
 /// Use as a factory for RSMLItem
 pub trait ItemFactory {
-    fn create() -> Rc<Item<'static>>;
+    fn create() -> Rc<dyn Item<'static>>;
 }
 
 /// A QQuickItem which is showing an Item
 #[derive(QObject)]
 pub struct RSMLItem<T: ItemFactory + 'static> {
     base: qt_base_class!(trait QQuickItem),
-    node: Option<Rc<Item<'static> + 'static>>,
+    node: Option<Rc<dyn Item<'static> + 'static>>,
     _phantom: ::std::marker::PhantomData<T>,
 }
 impl<T: ItemFactory + 'static> RSMLItem<T> {
-    fn set_node(&mut self, node: Rc<Item<'static>>) {
+    fn set_node(&mut self, node: Rc<dyn Item<'static>>) {
         node.init(self);
         self.node = Some(node);
         {
@@ -32,7 +32,7 @@ impl<T: ItemFactory + 'static> RSMLItem<T> {
                 obj->setAcceptedMouseButtons(Qt::LeftButton);
             });
         }
-        (self as &QQuickItem).update();
+        (self as &dyn QQuickItem).update();
     }
 }
 impl<T: ItemFactory + 'static> Default for RSMLItem<T> {
@@ -58,14 +58,14 @@ impl<T: ItemFactory + 'static> QQuickItem for RSMLItem<T> {
             i.geometry().width.set(new_geometry.width);
             i.geometry().height.set(new_geometry.height);
         }
-        (self as &QQuickItem).update();
+        (self as &dyn QQuickItem).update();
     }
 
     fn class_begin(&mut self) {
         self.set_node(T::create());
     }
 
-    fn mouse_event(&mut self, event: ::qmetaobject::QMouseEvent) -> bool {
+    fn mouse_event(&mut self, event: ::qmetaobject::QMouseEvent<'_>) -> bool {
         let pos = event.position();
         let e = match event.event_type() {
             ::qmetaobject::QMouseEventType::MouseButtonPress => MouseEvent::Press(pos),

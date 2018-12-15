@@ -6,7 +6,7 @@ pub enum EndTag {}
 pub enum CenterTag {}
 pub enum SizeTag {}
 
-pub struct AnchorElement<'a, Tag: 'a, F: PropertyBindingFn<f64> + 'a> {
+pub struct AnchorElement<'a, Tag, F: PropertyBindingFn<f64> + 'a> {
     f: F,
     _phantom: PhantomData<&'a Tag>,
 }

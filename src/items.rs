@@ -110,18 +110,18 @@ pub trait Item<'a> {
     fn update_paint_node(
         &self,
         node: SGNode<ContainerNode>,
-        _item: &QQuickItem,
+        _item: &dyn QQuickItem,
     ) -> SGNode<ContainerNode> {
         node
     }
-    fn init(&self, _item: &(QQuickItem + 'a)) {}
+    fn init(&self, _item: &(dyn QQuickItem + 'a)) {}
     fn mouse_event(&self, _event: MouseEvent) -> bool {
         false
     }
 }
 
 pub trait ItemContainer<'a> {
-    fn add_child(&self, child: Rc<Item<'a> + 'a>);
+    fn add_child(&self, child: Rc<dyn Item<'a> + 'a>);
 }
 
 impl<'a, T, I: Item<'a> + 'a> Item<'a> for T
@@ -137,11 +137,11 @@ where
     fn update_paint_node(
         &self,
         node: SGNode<ContainerNode>,
-        item: &QQuickItem,
+        item: &dyn QQuickItem,
     ) -> SGNode<ContainerNode> {
         ::std::ops::Deref::deref(self).update_paint_node(node, item)
     }
-    fn init(&self, item: &(QQuickItem + 'a)) {
+    fn init(&self, item: &(dyn QQuickItem + 'a)) {
         (**self).init(item)
     }
     fn mouse_event(&self, event: MouseEvent) -> bool {
@@ -243,7 +243,7 @@ macro_rules! declare_box_layout {
             pub layout_info: LayoutInfo<'a>,
             pub spacing: Property<'a, f64>,
 
-            children: RefCell<Vec<Rc<Item<'a> + 'a>>>,
+            children: RefCell<Vec<Rc<dyn Item<'a> + 'a>>>,
             positions: Property<'a, Vec<layout_engine::ItemResult>>,
         }
         impl<'a> Item<'a> for $ColumnLayout<'a> {
@@ -257,7 +257,7 @@ macro_rules! declare_box_layout {
             fn update_paint_node(
                 &self,
                 mut node: SGNode<ContainerNode>,
-                item: &QQuickItem,
+                item: &dyn QQuickItem,
             ) -> SGNode<ContainerNode> {
                 let g = self.geometry();
                 node.update_static(|mut n: SGNode<TransformNode>| -> SGNode<TransformNode> {
@@ -273,7 +273,7 @@ macro_rules! declare_box_layout {
                 node
             }
 
-            fn init(&self, item: &(QQuickItem + 'a)) {
+            fn init(&self, item: &(dyn QQuickItem + 'a)) {
                 for i in self.children.borrow().iter() {
                     i.init(item);
                 }
@@ -291,7 +291,7 @@ macro_rules! declare_box_layout {
         }
 
         impl<'a> ItemContainer<'a> for Rc<$ColumnLayout<'a>> {
-            fn add_child(&self, child: Rc<Item<'a> + 'a>) {
+            fn add_child(&self, child: Rc<dyn Item<'a> + 'a>) {
                 self.children.borrow_mut().push(child);
                 $ColumnLayout::build_layout(self);
             }
@@ -539,7 +539,7 @@ fn test_layout() {
 pub struct Container<'a> {
     pub geometry: Geometry<'a>,
     pub layout_info: LayoutInfo<'a>,
-    children: RefCell<Vec<Rc<Item<'a> + 'a>>>,
+    children: RefCell<Vec<Rc<dyn Item<'a> + 'a>>>,
 }
 impl<'a> Item<'a> for Container<'a> {
     fn geometry(&self) -> &Geometry<'a> {
@@ -552,7 +552,7 @@ impl<'a> Item<'a> for Container<'a> {
     fn update_paint_node(
         &self,
         mut node: SGNode<ContainerNode>,
-        item: &QQuickItem,
+        item: &dyn QQuickItem,
     ) -> SGNode<ContainerNode> {
         let g = self.geometry();
         node.update_static(|mut n: SGNode<TransformNode>| -> SGNode<TransformNode> {
@@ -568,7 +568,7 @@ impl<'a> Item<'a> for Container<'a> {
         node
     }
 
-    fn init(&self, item: &(QQuickItem + 'a)) {
+    fn init(&self, item: &(dyn QQuickItem + 'a)) {
         for i in self.children.borrow().iter() {
             i.init(item);
         }
@@ -584,7 +584,7 @@ impl<'a> Item<'a> for Container<'a> {
 }
 
 impl<'a> ItemContainer<'a> for Rc<Container<'a>> {
-    fn add_child(&self, child: Rc<Item<'a> + 'a>) {
+    fn add_child(&self, child: Rc<dyn Item<'a> + 'a>) {
         self.children.borrow_mut().push(child);
         Container::build_layout(self);
     }
@@ -626,8 +626,8 @@ impl<'a> Item<'a> for Rectangle<'a> {
         &self.layout_info
     }
 
-    fn init(&self, item: &(QQuickItem + 'a)) {
-        let item_ptr = qmetaobject::QPointer::<QQuickItem>::from(item);
+    fn init(&self, item: &(dyn QQuickItem + 'a)) {
+        let item_ptr = qmetaobject::QPointer::<dyn QQuickItem>::from(item);
         self.color.on_notify(move |_| {
             item_ptr.as_ref().map(|x| x.update());
         });
@@ -636,7 +636,7 @@ impl<'a> Item<'a> for Rectangle<'a> {
     fn update_paint_node(
         &self,
         mut node: SGNode<ContainerNode>,
-        item: &QQuickItem,
+        item: &dyn QQuickItem,
     ) -> SGNode<ContainerNode> {
         node.update_static(|mut n: SGNode<RectangleNode>| -> SGNode<RectangleNode> {
             n.create(item);
@@ -669,7 +669,7 @@ impl QmlItemWrapper {
     /// Create the internal QQuickItem, as a child of `item`.
     /// `name`  is the QML Type  (for example "Text".
     /// You should call link_property after calling init to initialize the properties.
-    pub fn init(&self, item: &QQuickItem, name: QString) {
+    pub fn init(&self, item: &dyn QQuickItem, name: QString) {
         let item = item.get_cpp_object();
         let js = cpp!(unsafe [item as "QQuickItem*", name as "QString"] -> QJSValue as "QJSValue" {
             if (!item) return {};
@@ -762,7 +762,7 @@ impl<'a> Item<'a> for Text<'a> {
     fn update_paint_node(
         &self,
         mut node: SGNode<ContainerNode>,
-        _item: &QQuickItem,
+        _item: &dyn QQuickItem,
     ) -> SGNode<ContainerNode> {
         node.update_static(|mut n: SGNode<TransformNode>| {
             let g = self.geometry();
@@ -778,7 +778,7 @@ impl<'a> Item<'a> for Text<'a> {
         node
     }
 
-    fn init(&self, item: &(QQuickItem + 'a)) {
+    fn init(&self, item: &(dyn QQuickItem + 'a)) {
         self.wrapper.init(item, "Text".into());
         self.wrapper.link_property(&self.text, cstr!("text"));
         self.wrapper

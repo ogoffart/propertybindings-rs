@@ -231,17 +231,17 @@ impl double_link::LinkedList for SenderList {
     }
 }
 
-type WeakPropertyRef = Weak<PropertyBase>;
+type WeakPropertyRef = Weak<dyn PropertyBase>;
 
 thread_local!(static CURRENT_PROPERTY: RefCell<Option<WeakPropertyRef>> = Default::default());
 
-fn run_with_current<'a, U, F>(dep: Weak<PropertyBase + 'a>, f: F) -> U
+fn run_with_current<'a, U, F>(dep: Weak<dyn PropertyBase + 'a>, f: F) -> U
 where
     F: Fn() -> U,
 {
     let mut old = Some(unsafe {
         // We only leave this for the time we are on this function, so the lifetime is fine
-        std::mem::transmute::<Weak<PropertyBase + 'a>, Weak<PropertyBase + 'static>>(dep)
+        std::mem::transmute::<Weak<dyn PropertyBase + 'a>, Weak<dyn PropertyBase + 'static>>(dep)
     });
     CURRENT_PROPERTY.with(|cur_dep| {
         let mut m = cur_dep.borrow_mut();
@@ -257,7 +257,7 @@ where
 }
 
 trait PropertyBase {
-    fn update<'a>(&'a self, dep: Weak<PropertyBase + 'a>);
+    fn update<'a>(&'a self, dep: Weak<dyn PropertyBase + 'a>);
     fn add_dependency(&self, link: NonNull<Link>);
     fn add_rev_dependency(&self, link: NonNull<Link>);
     fn update_dependencies(&self);
@@ -326,14 +326,14 @@ where
 #[derive(Default)]
 struct PropertyImpl<'a, T> {
     value: RefCell<T>,
-    binding: RefCell<Option<Box<PropertyBindingFn<T> + 'a>>>,
+    binding: RefCell<Option<Box<dyn PropertyBindingFn<T> + 'a>>>,
     dependencies: RefCell<double_link::Head<NotifyList>>,
     rev_dep: RefCell<double_link::Head<SenderList>>,
     updating: Cell<bool>,
-    callbacks: RefCell<Vec<Box<FnMut(&T) + 'a>>>,
+    callbacks: RefCell<Vec<Box<dyn FnMut(&T) + 'a>>>,
 }
 impl<'a, T> PropertyBase for PropertyImpl<'a, T> {
-    fn update<'b>(&'b self, dep: Weak<PropertyBase + 'b>) {
+    fn update<'b>(&'b self, dep: Weak<dyn PropertyBase + 'b>) {
         if let Some(ref f) = *self.binding.borrow() {
             if self.updating.get() {
                 panic!("Circular dependency found : {}", self.description());
@@ -542,7 +542,7 @@ mod tests {
 /// A Signal.
 #[derive(Default)]
 pub struct Signal<'a> {
-    callbacks: RefCell<Vec<Box<PropertyBindingFn<()> + 'a>>>,
+    callbacks: RefCell<Vec<Box<dyn PropertyBindingFn<()> + 'a>>>,
 }
 
 impl<'a> Signal<'a> {
