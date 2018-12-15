@@ -54,7 +54,7 @@ macro_rules! declare_AnchorCanAdd {
     };
     ([$($before:ident)* @ ]) => { };
 }
-declare_AnchorCanAdd!{[@ BeginTag EndTag CenterTag SizeTag]}
+declare_AnchorCanAdd! {[@ BeginTag EndTag CenterTag SizeTag]}
 
 pub trait AnchorApplyGeometry<'a> {
     fn apply_geometry(self, begin: &Property<'a, f64>, size: &Property<'a, f64>);
@@ -185,10 +185,10 @@ macro_rules! declare_AnchorFunc {
     };
 }
 impl<Horiz, Vert> Anchor<Horiz, Vert> {
-    declare_AnchorFunc!{left, top, BeginTag}
-    declare_AnchorFunc!{right, bottom, EndTag}
-    declare_AnchorFunc!{horizontal_center, vertical_center, CenterTag}
-    declare_AnchorFunc!{width, height, SizeTag}
+    declare_AnchorFunc! {left, top, BeginTag}
+    declare_AnchorFunc! {right, bottom, EndTag}
+    declare_AnchorFunc! {horizontal_center, vertical_center, CenterTag}
+    declare_AnchorFunc! {width, height, SizeTag}
 
     pub fn apply_geometry<'a>(self, g: &Geometry<'a>)
     where

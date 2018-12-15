@@ -210,7 +210,8 @@ mod layout_engine {
                     let p = pos;
                     pos += s + spacing;
                     ItemResult { size: s, pos: p }
-                }).collect()
+                })
+                .collect()
         } else {
             let to_add = size - total.preferred;
             //let total_allowed_to_add = total.max - preferred;
@@ -226,7 +227,8 @@ mod layout_engine {
                     let p = pos;
                     pos += s + spacing;
                     ItemResult { size: s, pos: p }
-                }).collect()
+                })
+                .collect()
         }
     }
 
@@ -381,7 +383,8 @@ macro_rules! declare_box_layout {
                                     preferred: x.layout_info().$preferred_height.get(),
                                     expand: 1, // FIXME
                                 }
-                            }).collect::<Vec<_>>();
+                            })
+                            .collect::<Vec<_>>();
                         layout_engine::do_layout(
                             &v,
                             layout_engine::compute_total_info(&v, 0.),
@@ -488,14 +491,14 @@ fn test_layout() {
         }
     }
 
-    let lay = rsml!{
+    let lay = rsml! {
         ColumnLayout {
             geometry.width: ColumnLayout.layout_info.preferred_width.get(),
             geometry.height: ColumnLayout.layout_info.preferred_height.get(),
         }
     };
 
-    lay.add_child(rsml!{
+    lay.add_child(rsml! {
         LItem {
             width : 150.,
             height : 100.,
@@ -503,14 +506,14 @@ fn test_layout() {
     });
     assert_eq!(lay.geometry.width(), 150.);
     assert_eq!(lay.geometry.height(), 100.);
-    let middle = rsml!{
+    let middle = rsml! {
         LItem {
             width : 110.,
             height : 90.,
         }
     };
     lay.add_child(middle.clone());
-    lay.add_child(rsml!{
+    lay.add_child(rsml! {
         LItem {
             width : 190.,
             height : 60.,
@@ -650,7 +653,7 @@ impl<'a> Rectangle<'a> {
     }
 }
 
-cpp!{{
+cpp! {{
 #include <QtQuick/QQuickItem>
 #include <QtQml/QQmlEngine>
 }}

@@ -218,7 +218,7 @@ macro_rules! rsml_init {
 #[cfg(test)]
 mod tests {
 
-    rsml!{
+    rsml! {
         struct Rectangle2 {
             width: u32 = 2,
             height: u32,
@@ -239,7 +239,7 @@ mod tests {
 
     #[test]
     fn test_rsml_init() {
-        let rec = rsml!{
+        let rec = rsml! {
             Rectangle2 {
                 height: Rectangle2.width.value() * 3,
             }
@@ -250,34 +250,34 @@ mod tests {
     }
 
     /*
-    rsml!{
-        struct Item {
-            width: u32,
-            height: u32,
-            x: u32,
-            y: u32,
+        rsml!{
+            struct Item {
+                width: u32,
+                height: u32,
+                x: u32,
+                y: u32,
+            }
         }
-    }
 
-    rsml!{
-        struct Rectangle {
-            base: Rc<Item> = ,
-            color: u32 = 0xffffffff,
-            border_color: u32,
-            border_width: 0
+        rsml!{
+            struct Rectangle {
+                base: Rc<Item> = ,
+                color: u32 = 0xffffffff,
+                border_color: u32,
+                border_width: 0
+            }
         }
-    }
 
-    rsml!{
-        struct MyComponent {
-            base: Rc<Item>,
-            r1: Rc<Rectangle> = rsml_instance!{Rectangle {
-                base: rsml_instance!{Item {
+        rsml!{
+            struct MyComponent {
+                base: Rc<Item>,
+                r1: Rc<Rectangle> = rsml_instance!{Rectangle {
+                    base: rsml_instance!{Item {
 
-            }}
+                }}
+            }
         }
-    }
-*/
+    */
 
 }
 

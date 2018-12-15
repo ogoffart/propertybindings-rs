@@ -19,7 +19,7 @@ impl propertybindings::quick::ItemFactory for PlusMinus {
         use propertybindings::items::*;
         use qmetaobject::{QColor, QString};
 
-        rsml!{ struct Button : Container {
+        rsml! { struct Button : Container {
             @signal on_clicked,
             text: QString;
             Rectangle { color: QColor::from_name(if mouse.pressed.get() {"#aaa"} else {"#ccc"} ) }

@@ -99,7 +99,8 @@ Window {{
 }}
         "#,
             name = name.to_str().unwrap()
-        ).into(),
+        )
+        .into(),
     );
     engine.exec();
 }
