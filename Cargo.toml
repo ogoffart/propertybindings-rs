@@ -10,7 +10,7 @@ keywords = ["qml", "gui"]
 edition = "2018"
 
 [dependencies]
-qmetaobject = "0.0.4"
+qmetaobject = "0.1.3"
 cpp = "0.5"
 cstr = "0.1.4"
 
