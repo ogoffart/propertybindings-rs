@@ -202,14 +202,14 @@ mod double_link {
 enum NotifyList {}
 enum SenderList {}
 
-struct Link {
+struct DependencyNode {
     notify_list: double_link::Node<NotifyList>,
     sender_list: double_link::Node<SenderList>,
-    elem: NonNull<dyn PropertyBase>,
+    elem: NonNull<dyn NotificationReciever>,
 }
-impl Link {
-    fn new(elem: NonNull<dyn PropertyBase>) -> Self {
-        Link {
+impl DependencyNode {
+    fn new(elem: NonNull<dyn NotificationReciever>) -> Self {
+        DependencyNode {
             notify_list: double_link::Node::default(),
             sender_list: double_link::Node::default(),
             elem,
@@ -218,29 +218,30 @@ impl Link {
 }
 
 impl double_link::LinkedList for NotifyList {
-    type NodeItem = Link;
+    type NodeItem = DependencyNode;
     unsafe fn next_ptr(mut node: NonNull<Self::NodeItem>) -> NonNull<double_link::Node<Self>> {
         NonNull::new_unchecked(&mut node.as_mut().notify_list as *mut _)
     }
 }
 
 impl double_link::LinkedList for SenderList {
-    type NodeItem = Link;
+    type NodeItem = DependencyNode;
     unsafe fn next_ptr(mut node: NonNull<Self::NodeItem>) -> NonNull<double_link::Node<Self>> {
         NonNull::new_unchecked(&mut node.as_mut().sender_list as *mut _)
     }
 }
 
 
-thread_local!(static CURRENT_PROPERTY: RefCell<Option<NonNull<dyn PropertyBase>>> = Default::default());
+thread_local!(static CURRENT_PROPERTY: RefCell<Option<NonNull<dyn NotificationReciever>>> = Default::default());
 
-fn run_with_current<'a, U, F>(dep: NonNull<dyn PropertyBase + 'a>, f: F) -> U
+fn run_with_current<'a, U, F>(dep: NonNull<dyn NotificationReciever + 'a>, f: F) -> U
 where
     F: Fn() -> U,
 {
     let mut old = Some(unsafe {
         // This is safe because we only store it for the duration of the call
-        std::mem::transmute::<NonNull<dyn PropertyBase + 'a>, NonNull<dyn PropertyBase + 'static>>(dep)
+        std::mem::transmute::<NonNull<dyn NotificationReciever + 'a>,
+            NonNull<dyn NotificationReciever + 'static>>(dep)
     });
     CURRENT_PROPERTY.with(|cur_dep| {
         let mut m = cur_dep.borrow_mut();
@@ -255,10 +256,14 @@ where
     res
 }
 
+trait NotificationReciever {
+    fn notify(self : Pin<&Self>);
+    fn add_rev_dependency(&self, link: NonNull<DependencyNode>);
+}
+
+
 trait PropertyBase {
-    fn update(self : Pin<&Self>);
-    fn add_dependency(&self, link: NonNull<Link>);
-    fn add_rev_dependency(&self, link: NonNull<Link>);
+    fn add_dependency(&self, link: NonNull<DependencyNode>);
     fn update_dependencies(&self);
 
     /// For debug purposes only
@@ -269,7 +274,7 @@ trait PropertyBase {
     fn accessed(&self) -> bool {
         CURRENT_PROPERTY.with(|cur_dep| {
             if let Some(m) = *cur_dep.borrow() {
-                let b = Box::new(Link::new(m));
+                let b = Box::new(DependencyNode::new(m));
                 let b = unsafe { NonNull::new_unchecked(Box::into_raw(b)) };
 
                 self.add_dependency(b);
@@ -279,6 +284,7 @@ trait PropertyBase {
             return false;
         })
     }
+
 }
 
 pub struct Binding<F> {
@@ -294,7 +300,7 @@ impl<'a, T, F: Fn()->T + 'a> core::convert::From<F> for Binding<F> {
 
 trait BindingBase<'a, T> {
     fn run(&self) -> Option<T>;
-    fn add_rev_dependency(&self, link: NonNull<Link>);
+    fn add_rev_dependency(&self, link: NonNull<DependencyNode>);
     fn clear_dependency(&self);
 }
 
@@ -302,7 +308,7 @@ impl<'a, T, F: Fn()->T + 'a> BindingBase<'a, T> for Binding<F> {
     fn run(&self) -> Option<T> {
         return Some((self.functor)())
     }
-    fn add_rev_dependency(&self, link: NonNull<Link>) {
+    fn add_rev_dependency(&self, link: NonNull<DependencyNode>) {
         unsafe {
             (&mut *self.rev_dep.as_ptr()).append(link);
         }
@@ -324,8 +330,8 @@ pub struct PropertyLight<'a, T> {
     // callbacks: RefCell<Vec<Box<dyn FnMut(&T) + 'a>>>,
 }
 
-impl<'a, T> PropertyBase for PropertyLight<'a, T> {
-    fn update(self : Pin<&Self>) {
+impl<'a, T> NotificationReciever for PropertyLight<'a, T> {
+    fn notify(self : Pin<&Self>) {
         if let Some(f) = self.binding.get() {
 
             /*if self.updating.get() {
@@ -342,26 +348,29 @@ impl<'a, T> PropertyBase for PropertyLight<'a, T> {
             //self.updating.set(false);
         }
     }
-    fn add_dependency(&self, link: NonNull<Link>) {
-        //println!("ADD DEPENDENCY {} -> {}",  self.description(), dep.upgrade().map_or("NONE".into(), |x| x.description()));
-        unsafe {
-            (&mut *self.dependencies.as_ptr()).append(link);
-        }
-    }
-    fn add_rev_dependency(&self, link: NonNull<Link>) {
+    fn add_rev_dependency(&self, link: NonNull<DependencyNode>) {
         //println!("ADD REV DEPENDENCY {} -> {}",  self.description(), dep.upgrade().map_or("NONE".into(), |x| x.description()));
         if let Some(f) = self.binding.get() {
             f.add_rev_dependency(link);
         }
     }
 
+}
+
+impl<'a, T> PropertyBase for PropertyLight<'a, T> {
+    fn add_dependency(&self, link: NonNull<DependencyNode>) {
+        //println!("ADD DEPENDENCY {} -> {}",  self.description(), dep.upgrade().map_or("NONE".into(), |x| x.description()));
+        unsafe {
+            (&mut *self.dependencies.as_ptr()).append(link);
+        }
+    }
     fn update_dependencies(&self) {
         let mut v = Default::default();
         unsafe { &mut *self.dependencies.as_ptr() }.swap(&mut v);
         for d in v {
             let elem = d.elem.clone();
             std::mem::drop(d); // One need to drop it to remove it from the rev list before calling update.
-            unsafe { Pin::new_unchecked(elem.as_ref()).update(); }
+            unsafe { Pin::new_unchecked(elem.as_ref()).notify(); }
         }
         /*for cb in self.callbacks.borrow_mut().iter_mut() {
             (*cb)(&self.value.borrow());
@@ -388,7 +397,7 @@ impl<'a, T : Clone> PropertyLight<'a, T> {
     }
     pub fn set_binding<F : Fn()->T>(self : Pin<&Self>, f: &'a Binding<F>) {
         self.binding.set(Some(f));
-        self.update();
+        self.notify();
     }
 
     /// Get the value.
