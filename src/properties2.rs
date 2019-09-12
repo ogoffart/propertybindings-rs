@@ -6,16 +6,14 @@ use core::ptr::NonNull;
 use core::pin::Pin;
 use std::ops::DerefMut;
 
-
-
 // A double linked intrusive list.
 // This is unsafe to use.
 // It work because the pointer are of type Link for which we know that the data is not moving from
 // and that it is droped when it is destroyed.
 mod double_link {
 
-    use std::ptr;
-    use std::ptr::NonNull;
+    use core::ptr;
+    use core::ptr::NonNull;
 
     pub trait LinkedList {
         type NodeItem;
@@ -473,27 +471,30 @@ mod tests_propertylight {
 
 /// Property can be assigned bindins which can access other properties. Changing the value of these
 /// other properties automatically re-evaluate the bindings
-#[derive(Default)]
 pub struct Property<'a, T> {
-    boxed: Box<PropertyLight<'a, T>> // FIXME: Pin<Box<PropertyLight<'a, T>>>
+    boxed: Pin<Box<PropertyLight<'a, T>>>
+}
 
+impl<'a, T : Default> Default for Property<'a, T> {
+    fn default() -> Self {
+        Property{ boxed: Box::pin(PropertyLight::default()) }
+    }
 }
 
 impl<'a, T: Clone> Property<'a, T> {
     pub fn set(&self, t: T) {
-        unsafe { Pin::new_unchecked(self.boxed.as_ref()) }.set(t)
+        self.boxed.as_ref().set(t)
     }
     pub fn set_binding<F : Fn()->T>(&self, f: &'a Binding<F>) {
-        unsafe { Pin::new_unchecked(self.boxed.as_ref()) }.set_binding(f)
+        self.boxed.as_ref().set_binding(f)
     }
 
     /// Get the value.
     /// Accessing this property from another's property binding will mark the other property as a dependency.
     pub fn get(&self) -> T {
-        unsafe { Pin::new_unchecked(self.boxed.as_ref()) }.get()
+        self.boxed.as_ref().get()
     }
 }
-
 
 
 #[cfg(test)]
