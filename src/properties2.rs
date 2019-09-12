@@ -3,7 +3,7 @@ use core::default::Default;
 use core::ptr::NonNull;
 use core::pin::Pin;
 use std::ops::DerefMut;
-use std::ops::Deref;
+
 
 
 // A double linked intrusive list.
@@ -205,10 +205,10 @@ enum SenderList {}
 struct Link {
     notify_list: double_link::Node<NotifyList>,
     sender_list: double_link::Node<SenderList>,
-    elem: NonNull<PropertyBase>,
+    elem: NonNull<dyn PropertyBase>,
 }
 impl Link {
-    fn new(elem: NonNull<PropertyBase>) -> Self {
+    fn new(elem: NonNull<dyn PropertyBase>) -> Self {
         Link {
             notify_list: double_link::Node::default(),
             sender_list: double_link::Node::default(),
@@ -232,9 +232,9 @@ impl double_link::LinkedList for SenderList {
 }
 
 
-thread_local!(static CURRENT_PROPERTY: RefCell<Option<NonNull<PropertyBase>>> = Default::default());
+thread_local!(static CURRENT_PROPERTY: RefCell<Option<NonNull<dyn PropertyBase>>> = Default::default());
 
-fn run_with_current<'a, U, F>(dep: NonNull<PropertyBase + 'a>, f: F) -> U
+fn run_with_current<'a, U, F>(dep: NonNull<dyn PropertyBase + 'a>, f: F) -> U
 where
     F: Fn() -> U,
 {
@@ -318,7 +318,7 @@ impl<'a, T, F: Fn()->T + 'a> BindingBase<'a, T> for Binding<F> {
 #[derive(Default)]
 pub struct PropertyLight<'a, T> {
     value: Cell<T>,
-    binding: Cell<Option<&'a BindingBase<'a, T>>>,
+    binding: Cell<Option<&'a dyn BindingBase<'a, T>>>,
     dependencies: Cell<double_link::Head<NotifyList>>,
     // updating: Cell<bool>,
     // callbacks: RefCell<Vec<Box<dyn FnMut(&T) + 'a>>>,

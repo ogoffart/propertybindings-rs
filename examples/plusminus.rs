@@ -4,7 +4,7 @@
 
 #[macro_use]
 extern crate propertybindings;
-extern crate qmetaobject;
+
 use std::rc::Rc;
 
 use propertybindings::properties::Property;
@@ -15,7 +15,7 @@ struct PlusMinus {
 }
 
 impl propertybindings::quick::ItemFactory for PlusMinus {
-    fn create() -> Rc<propertybindings::items::Item<'static>> {
+    fn create() -> Rc<dyn propertybindings::items::Item<'static>> {
         use propertybindings::items::*;
         use qmetaobject::{QColor, QString};
 
