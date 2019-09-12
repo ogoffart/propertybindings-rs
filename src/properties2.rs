@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use core::cell::{Cell, RefCell};
 use core::default::Default;
 use core::ptr::NonNull;
@@ -388,7 +390,7 @@ impl<'a, T : Clone> PropertyLight<'a, T> {
     }
     pub fn set_binding<F : Fn()->T>(self : Pin<&Self>, f: &'a Binding<F>) {
         self.binding.set(Some(f));
-        unsafe { self.update() };
+        self.update();
     }
 
     /// Get the value.

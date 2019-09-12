@@ -30,7 +30,7 @@ macro_rules! rsml {
         }*/
         impl<'a> $name<'a> {
             pub fn new() -> ::std::rc::Rc<Self> {
-                $(let $derive = rsml!(@init_derive $name $derive { $($sub_items)* }) ;)*
+                $(#[allow(non_snake_case)] let $derive = rsml!(@init_derive $name $derive { $($sub_items)* }) ;)*
                 let r = ::std::rc::Rc::new(Self {
                     $( DeriveItem : $derive.0 ,)*
                     $( $signal: Default::default(), )*
