@@ -1,6 +1,7 @@
 use core::cell::{Cell, RefCell};
 use core::default::Default;
 use core::ptr::NonNull;
+use core::pin::Pin;
 use std::ops::DerefMut;
 use std::ops::Deref;
 
@@ -255,8 +256,7 @@ where
 }
 
 trait PropertyBase {
-    /// FIXME:  this should be Pin<&Self> when it is stable, remove unsafe when fixed
-    unsafe fn update(&self);
+    fn update(self : Pin<&Self>);
     fn add_dependency(&self, link: NonNull<Link>);
     fn add_rev_dependency(&self, link: NonNull<Link>);
     fn update_dependencies(&self);
@@ -325,7 +325,7 @@ pub struct PropertyLight<'a, T> {
 }
 
 impl<'a, T> PropertyBase for PropertyLight<'a, T> {
-    unsafe fn update(&self) {
+    fn update(self : Pin<&Self>) {
         if let Some(f) = self.binding.get() {
 
             /*if self.updating.get() {
@@ -334,7 +334,7 @@ impl<'a, T> PropertyBase for PropertyLight<'a, T> {
             self.updating.set(true);*/
             f.clear_dependency();
 
-            if let Some(val) = run_with_current(NonNull::from(self), || f.run()) {
+            if let Some(val) = run_with_current(NonNull::from(&*self), || f.run()) {
                 // FIXME: check that the property does actualy change
                 self.value.set(val);
                 self.update_dependencies();
@@ -361,7 +361,7 @@ impl<'a, T> PropertyBase for PropertyLight<'a, T> {
         for d in v {
             let elem = d.elem.clone();
             std::mem::drop(d); // One need to drop it to remove it from the rev list before calling update.
-            unsafe { elem.as_ref().update(); }
+            unsafe { Pin::new_unchecked(elem.as_ref()).update(); }
         }
         /*for cb in self.callbacks.borrow_mut().iter_mut() {
             (*cb)(&self.value.borrow());
@@ -377,41 +377,23 @@ impl<'a, T> PropertyBase for PropertyLight<'a, T> {
     }*/
 }
 
+impl<'a, T : Clone> PropertyLight<'a, T> {
 
-// FIXME: use core::pin::Pin once it is stable
-pub struct Pin<P> {
-    pointer: P,
-}
-
-impl<P: Deref> Pin<P> {
-    pub unsafe fn new_unchecked(pointer: P) -> Pin<P> {
-        Pin { pointer }
-    }
-}
-
-impl<'a, T: ?Sized> Deref for Pin<&'a T> {
-    type Target = T;
-    fn deref(&self) -> &T {
-        self.pointer
-    }
-}
-
-impl<'a, T: Clone> Pin<&PropertyLight<'a, T>> {
     /// Set the value, and notify all the dependent property so their binding can be re-evaluated
-    pub fn set(&self, t: T) {
+    pub fn set(self : Pin<&Self>, t: T) {
         self.binding.set(None);
         self.value.set(t);
         // FIXME! don't update dependency if the property don't change.
         self.update_dependencies();
     }
-    pub fn set_binding<F : Fn()->T>(&self, f: &'a Binding<F>) {
+    pub fn set_binding<F : Fn()->T>(self : Pin<&Self>, f: &'a Binding<F>) {
         self.binding.set(Some(f));
         unsafe { self.update() };
     }
 
     /// Get the value.
     /// Accessing this property from another's property binding will mark the other property as a dependency.
-    pub fn get(&self) -> T {
+    pub fn get(self : Pin<&Self>) -> T {
         self.accessed();
         unsafe { &*self.value.as_ptr() }.clone()
     }
