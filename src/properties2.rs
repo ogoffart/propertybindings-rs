@@ -5,6 +5,7 @@ use core::default::Default;
 use core::ptr::NonNull;
 use core::pin::Pin;
 use std::ops::DerefMut;
+use core::convert::From;
 
 // A double linked intrusive list.
 // This is unsafe to use.
@@ -232,16 +233,17 @@ impl double_link::LinkedList for SenderList {
 }
 
 
-thread_local!(static CURRENT_PROPERTY: RefCell<Option<NonNull<dyn NotificationReciever>>> = Default::default());
+thread_local!(static CURRENT_PROPERTY: RefCell<Option<Pin<&'static dyn NotificationReciever>>>
+    = Default::default());
 
-fn run_with_current<'a, U, F>(dep: NonNull<dyn NotificationReciever + 'a>, f: F) -> U
+fn run_with_current<U, F>(dep: Pin<&dyn NotificationReciever>, f: F) -> U
 where
     F: Fn() -> U,
 {
     let mut old = Some(unsafe {
         // This is safe because we only store it for the duration of the call
-        std::mem::transmute::<NonNull<dyn NotificationReciever + 'a>,
-            NonNull<dyn NotificationReciever + 'static>>(dep)
+        std::mem::transmute::<Pin<&dyn NotificationReciever>,
+            Pin<&'static dyn NotificationReciever>>(dep)
     });
     CURRENT_PROPERTY.with(|cur_dep| {
         let mut m = cur_dep.borrow_mut();
@@ -251,14 +253,14 @@ where
     CURRENT_PROPERTY.with(|cur_dep| {
         let mut m = cur_dep.borrow_mut();
         std::mem::swap(m.deref_mut(), &mut old);
-        assert_eq!(old, Some(dep));
+        //assert_eq!(old, Some(dep));
     });
     res
 }
 
 trait NotificationReciever {
     fn notify(self : Pin<&Self>);
-    fn add_rev_dependency(&self, link: NonNull<DependencyNode>);
+    fn add_rev_dependency(self: Pin<&Self>, link: NonNull<DependencyNode>);
 }
 
 
@@ -274,11 +276,11 @@ trait PropertyBase {
     fn accessed(&self) -> bool {
         CURRENT_PROPERTY.with(|cur_dep| {
             if let Some(m) = *cur_dep.borrow() {
-                let b = Box::new(DependencyNode::new(m));
+                let b = Box::new(DependencyNode::new((&*m).into()));
                 let b = unsafe { NonNull::new_unchecked(Box::into_raw(b)) };
 
                 self.add_dependency(b);
-                unsafe { m.as_ref().add_rev_dependency(b) };
+                m.as_ref().add_rev_dependency(b);
                 return true;
             }
             return false;
@@ -292,7 +294,7 @@ pub struct Binding<F> {
     functor : F,
 }
 
-impl<'a, T, F: Fn()->T + 'a> core::convert::From<F> for Binding<F> {
+impl<T, F: Fn()->T > From<F> for Binding<F> {
     fn from(f : F) -> Self {
         Binding{ rev_dep: Cell::default(), functor: f }
     }
@@ -300,7 +302,7 @@ impl<'a, T, F: Fn()->T + 'a> core::convert::From<F> for Binding<F> {
 
 trait BindingBase<'a, T> {
     fn run(&self) -> Option<T>;
-    fn add_rev_dependency(&self, link: NonNull<DependencyNode>);
+    fn add_rev_dependency(self: Pin<&Self>, link: NonNull<DependencyNode>);
     fn clear_dependency(&self);
 }
 
@@ -308,7 +310,7 @@ impl<'a, T, F: Fn()->T + 'a> BindingBase<'a, T> for Binding<F> {
     fn run(&self) -> Option<T> {
         return Some((self.functor)())
     }
-    fn add_rev_dependency(&self, link: NonNull<DependencyNode>) {
+    fn add_rev_dependency(self: Pin<&Self>, link: NonNull<DependencyNode>) {
         unsafe {
             (&mut *self.rev_dep.as_ptr()).append(link);
         }
@@ -319,20 +321,38 @@ impl<'a, T, F: Fn()->T + 'a> BindingBase<'a, T> for Binding<F> {
 
 }
 
+// FIXME: the size should be optimized
+enum BindingHolder<'a, T> {
+    None,
+    Pin(Pin<&'a dyn BindingBase<'a, T>>),
+   // Box(Pin<Box<dyn BindingBase<'a, T> + 'a>>),
+}
+impl<'a, T> Default for BindingHolder<'a, T> {
+    fn default() -> Self { BindingHolder::None }
+}
+impl<'a, T>  BindingHolder<'a, T> {
+    fn binding(&self) -> Option<Pin<&dyn BindingBase<'a, T>>> {
+        match self {
+            BindingHolder::None => None,
+            BindingHolder::Pin(p) => Some(*p),
+     //       BindingHolder::Box(b) => Some(b.as_ref()),
+        }
+    }
+}
+
 /// A Property which do not use heap alocation, but is not safe to use because
 /// one must ensure that it is not moved
 #[derive(Default)]
 pub struct PropertyLight<'a, T> {
     value: Cell<T>,
-    binding: Cell<Option<&'a dyn BindingBase<'a, T>>>,
+    binding: RefCell<BindingHolder<'a, T>>,
     dependencies: Cell<double_link::Head<NotifyList>>,
     // updating: Cell<bool>,
-    // callbacks: RefCell<Vec<Box<dyn FnMut(&T) + 'a>>>,
 }
 
 impl<'a, T> NotificationReciever for PropertyLight<'a, T> {
     fn notify(self : Pin<&Self>) {
-        if let Some(f) = self.binding.get() {
+        if let Some(f) = self.binding.borrow().binding() {
 
             /*if self.updating.get() {
                 panic!("Circular dependency found : {}", self.description());
@@ -340,7 +360,7 @@ impl<'a, T> NotificationReciever for PropertyLight<'a, T> {
             self.updating.set(true);*/
             f.clear_dependency();
 
-            if let Some(val) = run_with_current(NonNull::from(&*self), || f.run()) {
+            if let Some(val) = run_with_current(self, || f.run()) {
                 // FIXME: check that the property does actualy change
                 self.value.set(val);
                 self.update_dependencies();
@@ -348,11 +368,8 @@ impl<'a, T> NotificationReciever for PropertyLight<'a, T> {
             //self.updating.set(false);
         }
     }
-    fn add_rev_dependency(&self, link: NonNull<DependencyNode>) {
-        //println!("ADD REV DEPENDENCY {} -> {}",  self.description(), dep.upgrade().map_or("NONE".into(), |x| x.description()));
-        if let Some(f) = self.binding.get() {
-            f.add_rev_dependency(link);
-        }
+    fn add_rev_dependency(self : Pin<&Self>, link: NonNull<DependencyNode>) {
+        self.binding.borrow().binding().map(|f| f.add_rev_dependency(link));
     }
 
 }
@@ -372,9 +389,6 @@ impl<'a, T> PropertyBase for PropertyLight<'a, T> {
             std::mem::drop(d); // One need to drop it to remove it from the rev list before calling update.
             unsafe { Pin::new_unchecked(elem.as_ref()).notify(); }
         }
-        /*for cb in self.callbacks.borrow_mut().iter_mut() {
-            (*cb)(&self.value.borrow());
-        }*/
     }
 
     /*fn description(&self) -> String {
@@ -387,16 +401,20 @@ impl<'a, T> PropertyBase for PropertyLight<'a, T> {
 }
 
 impl<'a, T : Clone> PropertyLight<'a, T> {
-
     /// Set the value, and notify all the dependent property so their binding can be re-evaluated
     pub fn set(self : Pin<&Self>, t: T) {
-        self.binding.set(None);
+        *self.binding.borrow_mut() = BindingHolder::None;
         self.value.set(t);
         // FIXME! don't update dependency if the property don't change.
         self.update_dependencies();
     }
-    pub fn set_binding<F : Fn()->T>(self : Pin<&Self>, f: &'a Binding<F>) {
-        self.binding.set(Some(f));
+    pub fn set_binding<F : Fn()->T>(self : Pin<&Self>, f: Pin<&'a Binding<F>>) {
+        *self.binding.borrow_mut() = BindingHolder::Pin(f);
+        self.notify();
+    }
+
+    fn set_binding_box<F : Fn()->T + 'a>(self : Pin<&Self>, f: F) {
+    //    *self.binding.borrow_mut() = BindingHolder::Box(Box::pin(Binding::from(f)));
         self.notify();
     }
 
@@ -405,6 +423,30 @@ impl<'a, T : Clone> PropertyLight<'a, T> {
     pub fn get(self : Pin<&Self>) -> T {
         self.accessed();
         unsafe { &*self.value.as_ptr() }.clone()
+    }
+}
+
+
+struct ChangeEvent<F: Fn()> {
+    rev_dep: Cell<double_link::Head<SenderList>>,
+    event : F
+}
+
+impl<F: Fn()> From<F> for ChangeEvent<F> {
+    fn from(f : F) -> Self {
+        ChangeEvent{ rev_dep: Cell::default(), event: f }
+    }
+}
+
+
+impl<F: Fn()> NotificationReciever for ChangeEvent<F> {
+    fn notify(self : Pin<&Self>) {
+        (self.event)()
+    }
+    fn add_rev_dependency(self: Pin<&Self>, link: NonNull<DependencyNode>) {
+        unsafe {
+            (&mut *self.rev_dep.as_ptr()).append(link);
+        }
     }
 }
 
@@ -428,7 +470,7 @@ mod tests_propertylight {
         //let r = &r2;
         unsafe { Pin::new_unchecked(&r.width) }.set(2);
         let f = Binding::from( || { unsafe { Pin::new_unchecked(&r.width) }.get() * unsafe { Pin::new_unchecked(&r.height) }.get() } );
-        unsafe { Pin::new_unchecked(&r.area) }.set_binding( &f );
+        unsafe { Pin::new_unchecked(&r.area) }.set_binding( unsafe { Pin::new_unchecked(&f) } );
         unsafe { Pin::new_unchecked(&r.height) }.set(4);
         assert_eq!(unsafe { Pin::new_unchecked(&r.area) }.get(), 4 * 2);
     }
@@ -441,13 +483,13 @@ mod tests_propertylight {
         {
             let r2 = Rectangle::default();
             let f = Binding::from( || { unsafe { Pin::new_unchecked(&r.width) }.get() * unsafe { Pin::new_unchecked(&r.height) }.get() } );
-            unsafe { Pin::new_unchecked(&r2.area) }.set_binding( &f );
+            unsafe { Pin::new_unchecked(&r2.area) }.set_binding( unsafe { Pin::new_unchecked(&f) } );
             unsafe { Pin::new_unchecked(&r.height) }.set(4);
             assert_eq!(unsafe { Pin::new_unchecked(&r2.area) }.get(), 4 * 2);
 
             // Must not compile!
             //let f = Binding::from( || { unsafe { Pin::new_unchecked(&r2.width) }.get() * unsafe { Pin::new_unchecked(&r2.height) }.get() } );
-            //unsafe { Pin::new_unchecked(&r.area) }.set_binding( &f );
+            //unsafe { Pin::new_unchecked(&r.area) }.set_binding( unsafe { Pin::new_unchecked(&f) );
         }
         unsafe { Pin::new_unchecked(&r.height) }.set(42);
 
@@ -457,7 +499,7 @@ mod tests_propertylight {
             p.set(21);
             p.get()
         });
-        unsafe { Pin::new_unchecked(&r.area) }.set_binding( &f );
+        unsafe { Pin::new_unchecked(&r.area) }.set_binding( unsafe { Pin::new_unchecked(&f)} );
         assert_eq!(unsafe { Pin::new_unchecked(&r.area) }.get(), 21);
     }
 
@@ -481,21 +523,23 @@ mod tests_propertylight {
 /// Property can be assigned bindins which can access other properties. Changing the value of these
 /// other properties automatically re-evaluate the bindings
 pub struct Property<'a, T> {
-    boxed: Pin<Box<PropertyLight<'a, T>>>
+    boxed: Pin<Box<PropertyLight<'a, T>>>,
+    binding: RefCell<Option<Pin<Box<dyn BindingBase<'a, T> + 'a>>>>  // FIXME: move that pointer into the PropertyLight
 }
 
 impl<'a, T : Default> Default for Property<'a, T> {
     fn default() -> Self {
-        Property{ boxed: Box::pin(PropertyLight::default()) }
+        Property{ boxed: Box::pin(PropertyLight::default()), binding: RefCell::new(None)  }
     }
 }
 
 impl<'a, T: Clone> Property<'a, T> {
     pub fn set(&self, t: T) {
-        self.boxed.as_ref().set(t)
+        self.boxed.as_ref().set(t);
+        *self.binding.borrow_mut() = None;
     }
-    pub fn set_binding<F : Fn()->T>(&self, f: &'a Binding<F>) {
-        self.boxed.as_ref().set_binding(f)
+    pub fn set_binding<F : (Fn()->T) + 'a>(&self, f: F) {
+        self.boxed.as_ref().set_binding_box(f);
     }
 
     /// Get the value.
@@ -516,16 +560,15 @@ mod tests_boxedproperty {
         height: Property<'a, u32>,
         area: Property<'a, u32>,
     }
-
+/*
     #[test]
     fn it_works() {
         let r = Rectangle::default();
         r.width.set(2);
-        let f = Binding::from( || { r.width.get() * r.height.get() } );
-        r.area.set_binding( &f );
+        r.area.set_binding( || { r.width.get() * r.height.get() } );
         r.height.set(4);
         assert_eq!(r.area.get(), 4 * 2);
-    }
+    }*/
 
 
     #[test]
@@ -534,24 +577,21 @@ mod tests_boxedproperty {
         r.width.set(2);
         {
             let r2 = Rectangle::default();
-            let f = Binding::from( || { &r.width.get() * &r.height.get() } );
-            r2.area.set_binding( &f );
+            r2.area.set_binding( || { &r.width.get() * &r.height.get() }  );
             r.height.set(4);
             assert_eq!(r2.area.get(), 4 * 2);
 
             // Must not compile!
-            //let f = Binding::from( || { r2.width.get() * r2.height.get() } );
-            //r.area.set_binding( &f );
+            //r.area.set_binding( || { r2.width.get() * r2.height.get() } );
         }
         r.height.set(42);
 
-        let f = Binding::from( || {
+        r.area.set_binding(  || {
             let p = Property::<u32>::default();
             let p = &p;
             p.set(21);
             p.get()
-        } );
-        r.area.set_binding( &f );
+        }  );
         assert_eq!(r.area.get(), 21);
     }
 }
