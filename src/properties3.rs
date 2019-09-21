@@ -4,7 +4,7 @@ use core::cell::{Cell, RefCell};
 use core::default::Default;
 use core::ptr::NonNull;
 use core::pin::Pin;
-use vptr::ThinRef;
+use vptr::{ThinBox, ThinRef};
 use std::ops::DerefMut;
 
 mod internal {
@@ -126,7 +126,8 @@ pub struct BindingStorage {
 
 #[derive(Default)]
 struct PropertyInternal<T> {
-    // if value & 1 { ThinRef<&dyn Binding<T>> } else { double_link::Head<NotifyList> }
+    // if value & 0b11 { ThinBox<&dyn Binding<T>> }
+    //  else if value & 1 { ThinRef<&dyn Binding<T>> } else { double_link::Head<NotifyList> }
     value: core::cell::Cell<usize>,
     phantom: core::marker::PhantomData<(T, std::marker::PhantomPinned)>
 }
@@ -134,8 +135,8 @@ struct PropertyInternal<T> {
 impl<T> PropertyInternal<T> {
     unsafe fn binding<'a>(&'a self) -> Option<Pin<&'a dyn Binding<T>>> {
         let v = self.value.get();
-        if v & 1 == 1 {
-            let v = v & (!1);
+        if v & 0b1 == 1 {
+            let v = v & (!0b11);
             Some(std::mem::transmute::<&usize, &'a Pin<ThinRef<'a, dyn Binding<T>>>>(&v).as_ref())
         } else {
             None
@@ -148,19 +149,39 @@ impl<T> PropertyInternal<T> {
     }
 
     unsafe fn set_binding<'a>(&'a self, b: Pin<ThinRef<'a, dyn Binding<T> + 'a>>) {
-        let v = std::mem::transmute::<Pin<ThinRef<'a, dyn Binding<T> + 'a>>, usize>(b) | 1usize;
+        let v = std::mem::transmute::<Pin<ThinRef<'a, dyn Binding<T> + 'a>>, usize>(b);
+        assert!(v & 0b11 == 0);
+        let v = v | 1usize;
         if self.value.get() == v { return };
-        (*self.notify_dep().as_ptr()).swap(&mut *b.as_ref().storage().notify_dep.as_ptr());
-        // FIXME! add an is_empty to the list
-        //assert_eq!(std::mem::transmute::<_, usize>(*self.notify_dep()), 0);
+        self.remove_binding();
         self.value.set(v);
     }
 
-    unsafe fn remove_binding(&self) {
-        if let Some(b) = self.binding() {
+    unsafe fn remove_binding<'a>(&'a self) {
+        if self.value.get() & 0b11 != 0 {
+            // There is no from_raw in vptr::ThinBox
+            let ptr : usize = self.value.get() & !0b11;
+            self.value.set(0);
+//let b = std::mem::transmute::<usize, Pin<ThinBox<dyn Binding<T> + 'a>>>(ptr);
+//(*self.notify_dep().as_ptr()).swap(&mut *b.as_ref().storage().notify_dep.as_ptr());
+
+        } else if let Some(b) = self.binding() {
             self.value.set(0);
             (*self.notify_dep().as_ptr()).swap(&mut *b.as_ref().storage().notify_dep.as_ptr());
         }
+    }
+
+    unsafe fn set_binding_box(&self, b: Pin<ThinBox<dyn Binding<T>>>) {
+        self.remove_binding();
+        let v = std::mem::transmute::<Pin<ThinBox<dyn Binding<T>>>, usize>(b);
+        assert!(v & 0b11 == 0);
+        self.value.set(v | 0b11usize);
+    }
+}
+
+impl<T> Drop for PropertyInternal<T> {
+    fn drop(&mut self) {
+        unsafe { self.remove_binding(); }
     }
 }
 
@@ -179,6 +200,11 @@ impl<T : Clone> Property<T> {
     }
     pub fn set_binding<'a>(self : Pin<&'a Self>, b: Pin<ThinRef<'a, dyn Binding<T> + 'a>>) {
         unsafe { self.internal.set_binding(b) };
+        self.notify();
+    }
+
+    pub fn set_binding_owned<'a>(self : Pin<&'a Self>, b: Pin<ThinBox<dyn Binding<T> + 'a>>) {
+        unsafe { self.internal.set_binding_box(b) };
         self.notify();
     }
 
@@ -231,7 +257,6 @@ impl<T> PropertyBase for Property<T> {
     }
 }
 
-
 #[cfg(test)]
 mod t {
 
@@ -261,7 +286,7 @@ mod t {
             }
         }*/
 
-
+/*
         #[vptr::vptr("Binding<f32>")]
         #[derive(Default)]
         struct AreaBinding<'a>(Option<Pin<&'a Item>>, BindingStorage);
@@ -273,6 +298,34 @@ mod t {
                 self.0.map(|i| {i.height().get() * i.width().get()}).unwrap_or(-1.)
             }
         }
+
+        */
+
+        macro_rules! make_binding {
+            (struct $name:ident $(< $($lt:lifetime),* >)? : $st:literal $type:ty =>
+                | $state:ident : $state_ty:ty | $block:block ) => {
+                #[vptr($st)]
+                struct $name $(<$($lt),*>)* ($state_ty, BindingStorage);
+                impl $(<$($lt)*>)* Binding<f32> for $name $(<$($lt)*>)*{
+                    fn storage(self : ::core::pin::Pin<&Self>) -> Pin<&BindingStorage> {
+                        unsafe {  ::core::pin::Pin::map_unchecked(self, |x| & x.1) }
+                    }
+                    fn call(self: ::core::pin::Pin<&Self>) -> $type {
+                        let $state = unsafe { ::core::pin::Pin::map_unchecked(self, |s| &s.0) };
+                        $block
+                    }
+                }
+                impl $(<$($lt)*>)* $name $(<$($lt)*>)* {
+                    fn new($state : $state_ty) -> Self {
+                        $name($state , Default::default(), Default::default())
+                    }
+                }
+            };
+        }
+
+        make_binding!(struct AreaBinding<'a> : "Binding<f32>" f32 => |item : Pin<&'a Item> | {
+            item.height().get() * item.width().get()
+        });
 
         #[derive(Default)]
         struct Item {
@@ -306,8 +359,7 @@ mod t {
         let i = Item::default();
         pin_utils::pin_mut!(i);
         let i = i.as_ref();
-        let mut area_binding = AreaBinding::default();
-        area_binding.0 = Some(i);
+        let area_binding = AreaBinding::new(i);
         pin_utils::pin_mut!(area_binding);
         i.height().set(12.);
         i.width().set(8.);
@@ -316,6 +368,9 @@ mod t {
         i.width().set(4.);
         assert_eq!(i.area().get(), 12.*4.);
 
+        make_binding!(struct AreaBinding2<'a> : "Binding<f32>" f32 => |item : Pin<&'a Item> | {
+            item.height().get() + item.width().get()
+        });
     }
 }
 
@@ -533,3 +588,4 @@ impl Item {
         }
     };*/
 }*/
+
