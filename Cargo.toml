@@ -13,7 +13,6 @@ edition = "2018"
 qmetaobject = "0.1.3"
 cpp = "0.5"
 cstr = "0.1.4"
-vptr = { version = "0.2.1", path = "../vtable" }
 pin-utils = "0.1.0-alpha.4"
 memoffset = "0.5.1"
 
