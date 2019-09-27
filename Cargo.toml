@@ -1,6 +1,6 @@
 [package]
 name = "propertybindings"
-version = "0.0.2"
+version = "0.0.3"
 authors = ["Olivier Goffart <ogoffart@woboq.com>"]
 build = "build.rs"
 description = "Experimental rust-based QML-like language."
