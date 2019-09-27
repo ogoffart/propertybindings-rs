@@ -1,97 +1,11 @@
 use std;
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::convert::From;
 use std::default::Default;
-use std::ops::DerefMut;
-use std::ptr::NonNull;
 use std::rc::{Rc, Weak};
-
-#[path="double_link.rs"]
-mod double_link;
-
-enum NotifyList {}
-enum SenderList {}
-
-struct Link {
-    notify_list: double_link::Node<NotifyList>,
-    sender_list: double_link::Node<SenderList>,
-    elem: WeakPropertyRef,
-}
-impl Link {
-    fn new(elem: WeakPropertyRef) -> Self {
-        Link {
-            notify_list: double_link::Node::default(),
-            sender_list: double_link::Node::default(),
-            elem: elem,
-        }
-    }
-}
-
-impl double_link::LinkedList for NotifyList {
-    type NodeItem = Link;
-    unsafe fn next_ptr(mut node: NonNull<Self::NodeItem>) -> NonNull<double_link::Node<Self>> {
-        NonNull::new_unchecked(&mut node.as_mut().notify_list as *mut _)
-    }
-}
-
-impl double_link::LinkedList for SenderList {
-    type NodeItem = Link;
-    unsafe fn next_ptr(mut node: NonNull<Self::NodeItem>) -> NonNull<double_link::Node<Self>> {
-        NonNull::new_unchecked(&mut node.as_mut().sender_list as *mut _)
-    }
-}
-
-type WeakPropertyRef = Weak<dyn PropertyBase>;
-
-thread_local!(static CURRENT_PROPERTY: RefCell<Option<WeakPropertyRef>> = Default::default());
-
-fn run_with_current<'a, U, F>(dep: Weak<dyn PropertyBase + 'a>, f: F) -> U
-where
-    F: Fn() -> U,
-{
-    let mut old = Some(unsafe {
-        // We only leave this for the time we are on this function, so the lifetime is fine
-        std::mem::transmute::<Weak<dyn PropertyBase + 'a>, Weak<dyn PropertyBase + 'static>>(dep)
-    });
-    CURRENT_PROPERTY.with(|cur_dep| {
-        let mut m = cur_dep.borrow_mut();
-        std::mem::swap(m.deref_mut(), &mut old);
-    });
-    let res = f();
-    CURRENT_PROPERTY.with(|cur_dep| {
-        let mut m = cur_dep.borrow_mut();
-        std::mem::swap(m.deref_mut(), &mut old);
-        //assert!(Rc::ptr_eq(&dep.upgrade().unwrap(), &old.unwrap().upgrade().unwrap()));
-    });
-    res
-}
-
-trait PropertyBase {
-    fn update<'a>(&'a self, dep: Weak<dyn PropertyBase + 'a>);
-    fn add_dependency(&self, link: NonNull<Link>);
-    fn add_rev_dependency(&self, link: NonNull<Link>);
-    fn update_dependencies(&self);
-
-    fn description(&self) -> String {
-        String::default()
-    }
-
-    fn accessed(&self) -> bool {
-        CURRENT_PROPERTY.with(|cur_dep| {
-            if let Some(m) = (*cur_dep.borrow()).clone() {
-                if let Some(mu) = m.upgrade() {
-                    let b = Box::new(Link::new(m));
-                    let b = unsafe { NonNull::new_unchecked(Box::into_raw(b)) };
-
-                    self.add_dependency(b);
-                    mu.add_rev_dependency(b);
-                    return true;
-                }
-            }
-            return false;
-        })
-    }
-}
+use std::marker::PhantomData;
+use std::pin::Pin;
+use crate::properties3 as properties_impl;
 
 /// A binding is a function that returns a value of type T
 pub trait PropertyBindingFn<T> {
@@ -133,112 +47,43 @@ where
     }
 }
 
-#[derive(Default)]
-struct PropertyImpl<'a, T> {
-    value: RefCell<T>,
-    binding: RefCell<Option<Box<dyn PropertyBindingFn<T> + 'a>>>,
-    dependencies: RefCell<double_link::Head<NotifyList>>,
-    rev_dep: RefCell<double_link::Head<SenderList>>,
-    updating: Cell<bool>,
-    callbacks: RefCell<Vec<Box<dyn FnMut(&T) + 'a>>>,
-}
-impl<'a, T> PropertyBase for PropertyImpl<'a, T> {
-    fn update<'b>(&'b self, dep: Weak<dyn PropertyBase + 'b>) {
-        if let Some(ref f) = *self.binding.borrow() {
-            if self.updating.get() {
-                panic!("Circular dependency found : {}", self.description());
-            }
-            self.updating.set(true);
-            self.rev_dep.borrow_mut().clear();
-
-            if let Some(val) = run_with_current(dep, || f.run()) {
-                // FIXME: check that the property does actualy change
-                *self.value.borrow_mut() = val;
-                self.update_dependencies();
-            }
-            self.updating.set(false);
-        }
-    }
-    fn add_dependency(&self, link: NonNull<Link>) {
-        //println!("ADD DEPENDENCY {} -> {}",  self.description(), dep.upgrade().map_or("NONE".into(), |x| x.description()));
-        unsafe {
-            self.dependencies.borrow_mut().append(link);
-        }
-    }
-    fn add_rev_dependency(&self, link: NonNull<Link>) {
-        //println!("ADD DEPENDENCY {} -> {}",  self.description(), dep.upgrade().map_or("NONE".into(), |x| x.description()));
-        unsafe {
-            self.rev_dep.borrow_mut().append(link);
-        }
-    }
-
-    fn update_dependencies(&self) {
-        let mut v = Default::default();
-        {
-            let mut dep = self.dependencies.borrow_mut();
-            dep.deref_mut().swap(&mut v);
-        }
-        for d in v {
-            let elem = d.elem.clone();
-            std::mem::drop(d); // One need to drop it to remove it from the rev list before calling update.
-            if let Some(d) = elem.upgrade() {
-                let w = Rc::downgrade(&d);
-                d.update(w);
-            }
-        }
-        for cb in self.callbacks.borrow_mut().iter_mut() {
-            (*cb)(&self.value.borrow());
-        }
-    }
-
-    fn description(&self) -> String {
-        if let Some(ref f) = *self.binding.borrow() {
-            f.description()
-        } else {
-            String::default()
-        }
-    }
-}
-
 #[derive(Default, Clone)]
 pub struct WeakProperty<'a, T> {
-    d: Weak<PropertyImpl<'a, T>>,
+    d: Weak<properties_impl::Property<T>>,
+    phantom: PhantomData<&'a ()>
 }
 impl<'a, T: Default + Clone> WeakProperty<'a, T> {
     pub fn get(&self) -> Option<T> {
-        self.d.upgrade().map(|x| (Property { d: x }).get())
+        // Safe because the original RC is pinned
+        self.d.upgrade().map(|x| unsafe{ Pin::new_unchecked(x) }.as_ref().get())
     }
 }
 
 /// A Property represents a value which records when it is accessed. If the property's binding
 /// depends on others property, the property binding is automatically re-evaluated.
 // Fixme! the property should maybe be computed lazily, or the graph studied to avoid unnecesseray re-computation.
-#[derive(Default)]
-pub struct Property<'a, T> {
-    d: Rc<PropertyImpl<'a, T>>,
+pub struct Property<'a, T : Default> {
+    d: Pin<Rc<properties_impl::Property<T>>>,
+    callbacks: RefCell<Vec<Pin<Box<properties_impl::ChangeEvent<dyn Fn() + 'a>>>>>
+}
+impl<'a, T: Default> Default for Property<'a, T> {
+    fn default() -> Self {
+        Property{ d: Rc::pin(properties_impl::Property::default()), callbacks: Default::default() }
+    }
 }
 impl<'a, T: Default + Clone> Property<'a, T> {
     pub fn from_binding<F: PropertyBindingFn<T> + 'a>(f: F) -> Property<'a, T> {
-        let d = Rc::new(PropertyImpl {
-            binding: RefCell::new(Some(Box::new(f))),
-            ..Default::default()
-        });
-        let w = Rc::downgrade(&d);
-        d.update(w);
-        Property { d: d }
+        let d = Rc::pin(properties_impl::Property::default());
+        d.as_ref().set_binding_owned(move || f.run().unwrap());
+        Property { d, callbacks: Default::default() }
     }
 
     /// Set the value, and notify all the dependent property so their binding can be re-evaluated
     pub fn set(&self, t: T) {
-        *self.d.binding.borrow_mut() = None;
-        *self.d.value.borrow_mut() = t;
-        // FIXME! don't updae dependency if the property don't change.
-        self.d.update_dependencies();
+        self.d.as_ref().set(t);
     }
     pub fn set_binding<F: PropertyBindingFn<T> + 'a>(&self, f: F) {
-        *self.d.binding.borrow_mut() = Some(Box::new(f));
-        let w = Rc::downgrade(&self.d);
-        self.d.update(w);
+        self.d.as_ref().set_binding_owned(move || f.run().unwrap());
     }
 
     /*
@@ -256,32 +101,37 @@ impl<'a, T: Default + Clone> Property<'a, T> {
     /// Get the value.
     /// Accessing this property from another's property binding will mark the other property as a dependency.
     pub fn get(&self) -> T {
-        self.d.accessed();
-        self.d.value.borrow().clone()
+        self.d.as_ref().get()
     }
 
     pub fn as_weak(&self) -> WeakProperty<'a, T> {
         WeakProperty {
-            d: Rc::downgrade(&self.d),
+            d: Rc::downgrade(unsafe {
+                // FIXME: use Pin::into_inner_unchecked
+                std::mem::transmute::<
+                    &std::pin::Pin<std::rc::Rc<properties_impl::Property<T>>>,
+                    &std::rc::Rc<properties_impl::Property<T>>>(&self.d)
+            }),
+            phantom: PhantomData,
         }
     }
 
     /// One can add callback which are being called when the property changes.
     pub fn on_notify<F>(&self, callback: F)
     where
-        F: FnMut(&T) + 'a,
+        F: Fn(&T) + 'a, T: 'a
     {
-        self.d.callbacks.borrow_mut().push(Box::new(callback));
+        let d = self.d.clone();
+        let e = Box::pin(properties_impl::ChangeEvent::new(move || callback(&d.as_ref().get())));
+        e.as_ref().listen(self.d.as_ref());
+        self.callbacks.borrow_mut().push(e);
     }
 }
-impl<'a, T: Default> From<T> for Property<'a, T> {
+impl<'a, T: Default + Clone> From<T> for Property<'a, T> {
     fn from(t: T) -> Self {
-        Property {
-            d: Rc::new(PropertyImpl {
-                value: RefCell::new(t),
-                ..Default::default()
-            }),
-        }
+        let p = Property::default();
+        p.set(t);
+        p
     }
 }
 

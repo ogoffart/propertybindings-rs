@@ -83,13 +83,13 @@ where
 }
 
 trait NotificationReciever {
-    fn notify(self : Pin<&Self>);
+    fn notify(self : Pin<&Self>, from: Pin<&dyn PropertyBase>);
     fn add_rev_dependency(self: Pin<&Self>, link: NonNull<DependencyNode>);
 }
 
 trait PropertyBase {
     fn add_dependency(&self, link: NonNull<DependencyNode>);
-    fn update_dependencies(&self);
+//    fn update_dependencies(&self);
 
     /// For debug purposes only
     fn description(&self) -> String {
@@ -114,6 +114,15 @@ trait PropertyBase {
 
 pub trait Binding<T> {
     fn call(self: Pin<&Self>) -> T;
+}
+
+impl<F, T> Binding<T> for F
+where
+    F: Fn() -> T,
+{
+    fn call(self: Pin<&Self>) -> T {
+        (*self.get_ref())()
+    }
 }
 
 #[repr(C)]
@@ -231,6 +240,7 @@ impl<T> PropertyInternal<T> {
 
     unsafe fn set_binding<'a>(&'a self, b: Pin<&'a BindingStorage<dyn Binding<T> + 'a>>) {
         let b = BindingPtr::from(b);
+        (*self.notify_dep().as_ptr()).swap(&mut *b.notify_dep.as_ptr());
         let v = std::mem::transmute::<BindingPtr<T>, usize>(b);
         assert!(v & 0b11 == 0);
         let v = v | 1usize;
@@ -251,6 +261,7 @@ impl<T> PropertyInternal<T> {
     }
 
     unsafe fn set_binding_box<'a>(&'a self, b: Box<BindingStorage<dyn Binding<T> + 'a>>) {
+        (*self.notify_dep().as_ptr()).swap(&mut *b.notify_dep.as_ptr());
         self.remove_binding();
         let ptr = Box::into_raw(b);
         let v = std::mem::transmute::<_, internal::TraitObject>(ptr).data as usize;
@@ -280,12 +291,12 @@ impl<T : Clone> Property<T> {
     }
     pub fn set_binding<'a>(self : Pin<&'a Self>, b: Pin<&'a BindingStorage<dyn Binding<T> + 'a>>) {
         unsafe { self.internal.set_binding(b) };
-        self.notify();
+        self.notify(self);
     }
 
     pub fn set_binding_owned<'a, B : Binding<T> + 'a>(self : Pin<&Self>, b: B) {
         unsafe { self.internal.set_binding_box(Box::new(BindingStorage::new(b))) };
-        self.notify();
+        self.notify(self);
     }
 
     pub fn get(self : Pin<&Self>) -> T {
@@ -294,8 +305,20 @@ impl<T : Clone> Property<T> {
     }
 }
 
+impl<T> Property<T> {
+    fn update_dependencies(self : Pin<&Self>) {
+        let mut v = Default::default();
+        unsafe { &mut *self.internal.notify_dep().as_ptr() }.swap(&mut v);
+        for d in v {
+            let elem = d.elem.clone();
+            std::mem::drop(d); // One need to drop it to remove it from the rev list before calling update.
+            unsafe { Pin::new_unchecked(elem.as_ref()).notify(self); }
+        }
+    }
+}
+
 impl<T> NotificationReciever for Property<T> {
-    fn notify(self : Pin<&Self>) {
+    fn notify(self : Pin<&Self>, _from : Pin<&dyn PropertyBase>) {
         if let Some(b) = unsafe { self.internal.binding() } {
             /*if self.updating.get() {
                 panic!("Circular dependency found : {}", self.description());
@@ -325,16 +348,50 @@ impl<T> PropertyBase for Property<T> {
             (&mut *self.internal.notify_dep().as_ptr()).append(link);
         }
     }
-    fn update_dependencies(&self) {
-        let mut v = Default::default();
-        unsafe { &mut *self.internal.notify_dep().as_ptr() }.swap(&mut v);
-        for d in v {
-            let elem = d.elem.clone();
-            std::mem::drop(d); // One need to drop it to remove it from the rev list before calling update.
-            unsafe { Pin::new_unchecked(elem.as_ref()).notify(); }
-        }
+}
+
+
+pub struct ChangeEvent<F: Fn() + ?Sized> {
+    list: Cell<double_link::Head<NotifyList>>,
+    func: F,
+}
+
+impl<F: Fn()> ChangeEvent<F> {
+    pub fn new(func: F) -> Self {
+        ChangeEvent { func, list: Default::default() }
+    }
+
+    pub fn listen<T>(self: Pin<&Self>, p : Pin<&Property<T>>) {
+        self.listen_impl(p)
+    }
+
+    fn listen_impl(self: Pin<&Self>, p : Pin<&dyn PropertyBase>) {
+        // cast away lifetime because we register the destructor anyway
+        let s = unsafe { std::mem::transmute::<&dyn NotificationReciever,
+            &(dyn NotificationReciever + 'static)>(&*self) };
+        let b = Box::new(DependencyNode::new(s.into()));
+        let b = unsafe { NonNull::new_unchecked(Box::into_raw(b)) };
+        unsafe { (*self.list.as_ptr()).append(b) };
+        p.as_ref().add_dependency(b);
+
     }
 }
+
+impl<F: Fn()> NotificationReciever for ChangeEvent<F>
+{
+    fn notify(self : Pin<&Self>, from : Pin<&dyn PropertyBase>) {
+        (self.func)();
+        // re-add the signal
+        self.listen_impl(from)
+    }
+
+
+    fn add_rev_dependency(self: Pin<&Self>, _link: NonNull<DependencyNode>) {
+        unreachable!();
+    }
+
+}
+
 
 #[cfg(test)]
 mod t {
@@ -458,6 +515,32 @@ mod t {
             });
             i.area().set_binding_owned(ThinBox::pin(AreaBinding2::new(i)));
         }*/
+    }
+
+
+
+    #[test]
+    fn test_notify() {
+        let x = Cell::new(0);
+        let bar = Property::default();
+        let foo = Property::default();
+        pin_utils::pin_mut!(bar);
+        pin_utils::pin_mut!(foo);
+        let bar = bar.as_ref();
+        let foo = foo.as_ref();
+        bar.set(2);
+        foo.set(2);
+        let e = ChangeEvent::new(|| x.set(x.get() + 1));
+        pin_utils::pin_mut!(e);
+        e.as_ref().listen(foo);
+        foo.set(3);
+        assert_eq!(x.get(), 1);
+        foo.set(45);
+        assert_eq!(x.get(), 2);
+        foo.set_binding_owned(|| bar.get());
+        assert_eq!(x.get(), 3);
+        bar.set(8);
+        assert_eq!(x.get(), 4);
     }
 }
 
