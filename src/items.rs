@@ -579,7 +579,7 @@ impl<'a> Item<'a> for Container<'a> {
         for i in self.children.borrow().iter() {
             ret = ret || i.mouse_event(event);
         }
-        return ret;
+        ret
     }
 }
 
@@ -629,7 +629,9 @@ impl<'a> Item<'a> for Rectangle<'a> {
     fn init(&self, item: &(dyn QQuickItem + 'a)) {
         let item_ptr = qmetaobject::QPointer::<dyn QQuickItem>::from(item);
         self.color.on_notify(move |_| {
-            item_ptr.as_ref().map(|x| x.update());
+            if let Some(x) = item_ptr.as_ref() {
+                x.update()
+            };
         });
     }
 

@@ -21,7 +21,7 @@ where
     type Output = AnchorElement<'a, Tag, F>;
     fn add(self, f: F) -> Self::Output {
         AnchorElement {
-            f: f,
+            f,
             _phantom: PhantomData::default(),
         }
     }

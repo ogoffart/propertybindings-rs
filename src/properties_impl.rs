@@ -103,9 +103,10 @@ trait PropertyBase {
 
                 self.add_dependency(b);
                 m.as_ref().add_rev_dependency(b);
-                return true;
+                true
+            } else {
+                false
             }
-            return false;
         })
     }
 }
@@ -180,10 +181,11 @@ impl<'a, T> BindingPtr<'a, T> {
             phantom: PhantomData,
         }
     }
-    fn into_raw(&self) -> *const () {
+    fn into_raw(self) -> *const () {
         self.data
     }
     fn as_ref(&self) -> Pin<&'a dyn Binding<T>> {
+        #[allow(clippy::cast_ptr_alignment)] // that's the actual type, and the alignment is correct
         let vtable = unsafe { *(self.data as *const *const ()) };
         let storage = unsafe {
             core::mem::transmute::<internal::TraitObject, &'a BindingStorage<dyn Binding<T>>>(
@@ -198,6 +200,7 @@ impl<'a, T> BindingPtr<'a, T> {
     }
 
     unsafe fn drop_binding(self) {
+        #[allow(clippy::cast_ptr_alignment)] // that's the actual type, and the alignment is correct
         let vtable = *(self.data as *const *const ());
         let storage = core::mem::transmute::<
             internal::TraitObject,
@@ -246,7 +249,7 @@ impl<T> PropertyInternal<T> {
         let v = self.value.get();
         if v & 0b1 == 0b1 {
             let v = v & (!0b11);
-            Some(BindingPtr::<T>::from_raw(v as *const _))
+            Some(BindingPtr::<'a, T>::from_raw(v as *const _))
         } else {
             None
         }

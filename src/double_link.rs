@@ -44,9 +44,10 @@ impl<L: LinkedList + ?Sized> Iterator for NodeIter<L> {
     type Item = NonNull<L::NodeItem>;
     fn next(&mut self) -> Option<Self::Item> {
         let r = NonNull::new(self.0);
-        r.as_ref()
-            .map(|n| unsafe { self.0 = L::next_ptr(*n).as_ref().next });
-        return r;
+        if let Some(n) = r.as_ref() {
+            unsafe { self.0 = L::next_ptr(*n).as_ref().next }
+        };
+        r
     }
 }
 
@@ -72,7 +73,7 @@ impl<L: LinkedList + ?Sized> Head<L> {
 
     // Not safe because it breaks if the list is modified while iterating.
     fn iter(&mut self) -> NodeIter<L> {
-        return NodeIter(self.0);
+        NodeIter(self.0)
     }
 
     pub fn swap(&mut self, other: &mut Self) {
