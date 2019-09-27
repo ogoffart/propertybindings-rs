@@ -28,4 +28,4 @@ pub mod rslm;
 pub mod items;
 pub mod quick;
 
-mod properties3;
+pub mod properties_impl;

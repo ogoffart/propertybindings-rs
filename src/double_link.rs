@@ -1,3 +1,7 @@
+//! A linked list whose node gets removed automatically when they get dropped.
+//! This is unsafe because the node need to stay at the same location in memory.
+//! This was implemented before Pin was introduced. It could be mase safer uing Pin
+
 use core::ptr;
 use core::ptr::NonNull;
 

@@ -51,7 +51,7 @@ impl propertybindings::quick::ItemFactory for PlusMinus {
                 }
                 Button {
                     text: "-".into(),
-                    on_clicked: model2.counter.set(model2.counter.get() + 1)
+                    on_clicked: model2.counter.set(model2.counter.get() - 1)
                 }
             }
         )

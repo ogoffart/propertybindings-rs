@@ -1,12 +1,12 @@
-#![allow(dead_code)]
+//! The new implementation of the property system.
+//! Which requires no memory allocation and use Pin to stay safe
 
 use core::cell::{Cell, RefCell};
 use core::default::Default;
 use core::ptr::NonNull;
 use core::pin::Pin;
-use std::ops::DerefMut;
-use std::marker::PhantomData;
-
+use core::ops::DerefMut;
+use core::marker::PhantomData;
 
 mod internal {
     /// Internal struct used by the macro generated code
@@ -22,8 +22,6 @@ mod internal {
 
 #[path="double_link.rs"]
 mod double_link;
-
-
 
 enum NotifyList {}
 enum SenderList {}
@@ -66,17 +64,17 @@ where
 {
     let mut old = Some(unsafe {
         // This is safe because we only store it for the duration of the call
-        std::mem::transmute::<Pin<&dyn NotificationReciever>,
+        core::mem::transmute::<Pin<&dyn NotificationReciever>,
             Pin<&'static dyn NotificationReciever>>(dep)
     });
     CURRENT_PROPERTY.with(|cur_dep| {
         let mut m = cur_dep.borrow_mut();
-        std::mem::swap(m.deref_mut(), &mut old);
+        core::mem::swap(m.deref_mut(), &mut old);
     });
     let res = f();
     CURRENT_PROPERTY.with(|cur_dep| {
         let mut m = cur_dep.borrow_mut();
-        std::mem::swap(m.deref_mut(), &mut old);
+        core::mem::swap(m.deref_mut(), &mut old);
         //assert_eq!(old, Some(dep));
     });
     res
@@ -142,7 +140,7 @@ pub struct BindingStorage<B : ?Sized> {
 
 impl<B> BindingStorage<B> {
     pub fn new<T>(binding : B) -> Self where B: Binding<T> {
-        let vtable = unsafe {std::mem::transmute::<&dyn Binding<T>, internal::TraitObject>(&binding).vtable };
+        let vtable = unsafe {core::mem::transmute::<&dyn Binding<T>, internal::TraitObject>(&binding).vtable };
         BindingStorage {
             vtable,
             rev_dep: Default::default(),
@@ -161,7 +159,7 @@ impl<'a, T> BindingPtr<'a, T> {
     fn from(binding : Pin<&'a BindingStorage<dyn Binding<T> + 'a>>) -> Self {
         let binding : &BindingStorage<dyn Binding<T>> = binding.get_ref();
         let to = unsafe {
-            std::mem::transmute::<&'a BindingStorage<dyn Binding<T>>,
+            core::mem::transmute::<&'a BindingStorage<dyn Binding<T>>,
                 internal::TraitObject>(binding)
         };
         // by construction  FIXME!  why is it not the case
@@ -175,7 +173,7 @@ impl<'a, T> BindingPtr<'a, T> {
     fn as_ref(&self) -> Pin<&'a dyn Binding<T>> {
         let vtable = unsafe { *(self.data as *const *const()) };
         let storage = unsafe {
-            std::mem::transmute::<
+            core::mem::transmute::<
                 internal::TraitObject,
                 &'a BindingStorage<dyn Binding<T>>
             >(internal::TraitObject{ data: self.data, vtable })
@@ -186,7 +184,7 @@ impl<'a, T> BindingPtr<'a, T> {
 
     unsafe fn drop_binding(self) {
         let vtable = *(self.data as *const *const());
-        let storage = std::mem::transmute::<
+        let storage = core::mem::transmute::<
                 internal::TraitObject,
                 &'a BindingStorage<dyn Binding<T>>
             >(internal::TraitObject{ data: self.data, vtable });
@@ -196,7 +194,7 @@ impl<'a, T> BindingPtr<'a, T> {
     fn storage(&self) -> &'a BindingStorage<dyn Binding<T>> {
         let vtable = unsafe { *(self.data as *const *const()) };
         let storage = unsafe {
-            std::mem::transmute::<
+            core::mem::transmute::<
                 internal::TraitObject,
                 &'a BindingStorage<dyn Binding<T>>
             >(internal::TraitObject{ data: self.data, vtable })
@@ -206,7 +204,7 @@ impl<'a, T> BindingPtr<'a, T> {
     }
 }
 
-impl<'a, T> std::ops::Deref for BindingPtr<'a, T> {
+impl<'a, T> core::ops::Deref for BindingPtr<'a, T> {
     type Target = BindingStorage<dyn Binding<T>>;
     fn deref(&self) -> &Self::Target {
         self.storage()
@@ -219,7 +217,7 @@ struct PropertyInternal<T> {
     // if value & 1 { BindingPtr<T> } else { double_link::Head<NotifyList> }
     // if value & 0b11, it needs to be dropped
     value: core::cell::Cell<usize>,
-    phantom: core::marker::PhantomData<(T, std::marker::PhantomPinned)>
+    phantom: core::marker::PhantomData<(T, core::marker::PhantomPinned)>
 }
 
 impl<T> PropertyInternal<T> {
@@ -235,13 +233,13 @@ impl<T> PropertyInternal<T> {
 
     unsafe fn notify_dep<'a>(&'a self) -> &'a Cell<double_link::Head<NotifyList>> {
         self.binding().map(|b| &b.storage().notify_dep).unwrap_or_else(||
-            std::mem::transmute::<_, &'a Cell<double_link::Head<NotifyList>>>(&self.value))
+            core::mem::transmute::<_, &'a Cell<double_link::Head<NotifyList>>>(&self.value))
     }
 
     unsafe fn set_binding<'a>(&'a self, b: Pin<&'a BindingStorage<dyn Binding<T> + 'a>>) {
         let b = BindingPtr::from(b);
         (*self.notify_dep().as_ptr()).swap(&mut *b.notify_dep.as_ptr());
-        let v = std::mem::transmute::<BindingPtr<T>, usize>(b);
+        let v = b.into_raw() as usize;
         assert!(v & 0b11 == 0);
         let v = v | 1usize;
         if self.value.get() == v { return };
@@ -264,7 +262,7 @@ impl<T> PropertyInternal<T> {
         (*self.notify_dep().as_ptr()).swap(&mut *b.notify_dep.as_ptr());
         self.remove_binding();
         let ptr = Box::into_raw(b);
-        let v = std::mem::transmute::<_, internal::TraitObject>(ptr).data as usize;
+        let v = core::mem::transmute::<_, internal::TraitObject>(ptr).data as usize;
         assert!(v & 0b11 == 0);
         self.value.set(v | 0b11usize);
     }
@@ -311,7 +309,7 @@ impl<T> Property<T> {
         unsafe { &mut *self.internal.notify_dep().as_ptr() }.swap(&mut v);
         for d in v {
             let elem = d.elem.clone();
-            std::mem::drop(d); // One need to drop it to remove it from the rev list before calling update.
+            core::mem::drop(d); // One need to drop it to remove it from the rev list before calling update.
             unsafe { Pin::new_unchecked(elem.as_ref()).notify(self); }
         }
     }
@@ -367,7 +365,7 @@ impl<F: Fn()> ChangeEvent<F> {
 
     fn listen_impl(self: Pin<&Self>, p : Pin<&dyn PropertyBase>) {
         // cast away lifetime because we register the destructor anyway
-        let s = unsafe { std::mem::transmute::<&dyn NotificationReciever,
+        let s = unsafe { core::mem::transmute::<&dyn NotificationReciever,
             &(dyn NotificationReciever + 'static)>(&*self) };
         let b = Box::new(DependencyNode::new(s.into()));
         let b = unsafe { NonNull::new_unchecked(Box::into_raw(b)) };
@@ -397,7 +395,7 @@ impl<F: Fn()> NotificationReciever for ChangeEvent<F>
 mod t {
 
     use super::*;
-
+/*
     macro_rules! unsafe_pinned {
         ($v:vis $f:ident: $t:ty) => (
             $v fn $f<'__a>(
@@ -410,32 +408,11 @@ mod t {
                 }
             }
         )
-    }
+    }*/
 
     #[test]
     fn test_property() {
-/*
-        struct AreaBinding(BindingStorage)
-        impl AreaBinding {
-            fn call(i : Pin<&Item>) -> f32 {
-                i.width().get() * i.height().get()
-            }
-        }*/
 
-/*
-        #[vptr::vptr("Binding<f32>")]
-        #[derive(Default)]
-        struct AreaBinding<'a>(Option<Pin<&'a Item>>, BindingStorage);
-        impl<'a> Binding<f32> for AreaBinding<'a> {
-            fn storage(self : Pin<&Self>) -> Pin<&BindingStorage> {
-                unsafe {  ::core::pin::Pin::map_unchecked(self, |x| & x.1) }
-            }
-            fn call(self: Pin<&Self>) -> f32 {
-                self.0.map(|i| {i.height().get() * i.width().get()}).unwrap_or(-1.)
-            }
-        }
-
-        */
 
         macro_rules! make_binding {
             (struct $name:ident $(< $($lt:lifetime),* >)? : $st:literal $type:ty =>
@@ -456,35 +433,17 @@ mod t {
         }
 
         make_binding!(struct AreaBinding<'a> : "Binding<f32>" f32 => |item : Pin<&'a Item> | {
-            item.height().get() * item.width().get()
+            item.project_ref().height.get() * item.project_ref().width.get()
         });
 
+        #[pin_project::pin_project]
         #[derive(Default)]
         struct Item {
-            pub width: Property<f32>,
-            pub height: Property<f32>,
-            pub area: Property<f32>,
-            //area1_binding: AreaBinding,
+            #[pin] pub width: Property<f32>,
+            #[pin] pub height: Property<f32>,
+            #[pin] pub area: Property<f32>,
         }
 
-        impl Item {
-            unsafe_pinned!(pub width: Property<f32>);
-            unsafe_pinned!(pub height: Property<f32>);
-            unsafe_pinned!(pub area: Property<f32>);
-            //unsafe_pinned!(area1_binding: AreaBinding);
-
-
-           /* fn init(self: Pin<&mut Self>) /*-> Pin<&Self> */{
-                self.area1_binding.1 = Some()
-                self.as_ref().height().set(42.);
-                self.as_ref().width().set(77.);
-//                let mut s = self;
-//                 init_binding!(area1_binding <f32> in s:Item {
-//                     s.width().get() * s.height().get()
-//                 });
-//                s.into_ref()
-            }*/
-        }
 
         let i = Item::default();
         pin_utils::pin_mut!(i);
@@ -492,29 +451,20 @@ mod t {
         let area_binding = AreaBinding::new(i);
         let area_binding = BindingStorage::new(area_binding);
         pin_utils::pin_mut!(area_binding);
-        i.height().set(12.);
-        i.width().set(8.);
-        i.area().set_binding(area_binding.as_ref());
-        assert_eq!(i.area().get(), 12.*8.);
-        i.width().set(4.);
-        assert_eq!(i.area().get(), 12.*4.);
+        i.project_ref().height.set(12.);
+        i.project_ref().width.set(8.);
+        i.project_ref().area.set_binding(area_binding.as_ref());
+        assert_eq!(i.project_ref().area.get(), 12.*8.);
+        i.project_ref().width.set(4.);
+        assert_eq!(i.project_ref().area.get(), 12.*4.);
 
         make_binding!(struct AreaBinding2<'a> : "Binding<f32>" f32 => |item : Pin<&'a Item> | {
-            item.height().get() + item.width().get()
+            item.project_ref().height.get() + item.project_ref().width.get()
         });
-        i.area().set_binding_owned(AreaBinding2::new(i));
-        assert_eq!(i.area().get(), 12.+4.);
-        i.height().set(8.);
-        assert_eq!(i.area().get(), 8.+4.);
-
-
-        /*{
-            let item = std::rc::Rc::pin(Item::default());
-            make_binding!(struct AreaBinding2<'a> : "Binding<f32>" f32 => |item : Pin<Rc<Item>> | {
-                item.as_ref().height().get() + item.as_ref().width().get()
-            });
-            i.area().set_binding_owned(ThinBox::pin(AreaBinding2::new(i)));
-        }*/
+        i.project_ref().area.set_binding_owned(AreaBinding2::new(i));
+        assert_eq!(i.project_ref().area.get(), 12.+4.);
+        i.project_ref().height.set(8.);
+        assert_eq!(i.project_ref().area.get(), 8.+4.);
     }
 
 

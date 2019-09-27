@@ -1,3 +1,5 @@
+//! This module is the old implementation of the property system, before Pin existed.
+//! The module properties_impl contains the new implementation and is used as implementation for this
 use std;
 use std::cell::RefCell;
 use std::convert::From;
@@ -5,7 +7,7 @@ use std::default::Default;
 use std::rc::{Rc, Weak};
 use std::marker::PhantomData;
 use std::pin::Pin;
-use crate::properties3 as properties_impl;
+use crate::properties_impl;
 
 /// A binding is a function that returns a value of type T
 pub trait PropertyBindingFn<T> {
