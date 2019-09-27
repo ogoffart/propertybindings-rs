@@ -103,8 +103,7 @@ impl<L: LinkedList + ?Sized> Iterator for Head<L> {
             let mut node_node = L::next_ptr(n);
             self.0 = node_node.as_ref().next;
             if !self.0.is_null() {
-                L::next_ptr(NonNull::new_unchecked(self.0)).as_mut().prev =
-                    &mut self.0 as *mut _;
+                L::next_ptr(NonNull::new_unchecked(self.0)).as_mut().prev = &mut self.0 as *mut _;
             }
             node_node.as_mut().prev = ::std::ptr::null_mut();
             node_node.as_mut().next = ::std::ptr::null_mut();

@@ -3,10 +3,10 @@
 
 use core::cell::{Cell, RefCell};
 use core::default::Default;
-use core::ptr::NonNull;
-use core::pin::Pin;
-use core::ops::DerefMut;
 use core::marker::PhantomData;
+use core::ops::DerefMut;
+use core::pin::Pin;
+use core::ptr::NonNull;
 
 mod internal {
     /// Internal struct used by the macro generated code
@@ -20,7 +20,7 @@ mod internal {
     }
 }
 
-#[path="double_link.rs"]
+#[path = "double_link.rs"]
 mod double_link;
 
 enum NotifyList {}
@@ -64,8 +64,9 @@ where
 {
     let mut old = Some(unsafe {
         // This is safe because we only store it for the duration of the call
-        core::mem::transmute::<Pin<&dyn NotificationReciever>,
-            Pin<&'static dyn NotificationReciever>>(dep)
+        core::mem::transmute::<Pin<&dyn NotificationReciever>, Pin<&'static dyn NotificationReciever>>(
+            dep,
+        )
     });
     CURRENT_PROPERTY.with(|cur_dep| {
         let mut m = cur_dep.borrow_mut();
@@ -81,13 +82,13 @@ where
 }
 
 trait NotificationReciever {
-    fn notify(self : Pin<&Self>, from: Pin<&dyn PropertyBase>);
+    fn notify(self: Pin<&Self>, from: Pin<&dyn PropertyBase>);
     fn add_rev_dependency(self: Pin<&Self>, link: NonNull<DependencyNode>);
 }
 
 trait PropertyBase {
     fn add_dependency(&self, link: NonNull<DependencyNode>);
-//    fn update_dependencies(&self);
+    //    fn update_dependencies(&self);
 
     /// For debug purposes only
     fn description(&self) -> String {
@@ -107,7 +108,6 @@ trait PropertyBase {
             return false;
         })
     }
-
 }
 
 pub trait Binding<T> {
@@ -124,7 +124,7 @@ where
 }
 
 #[repr(C)]
-pub struct BindingStorage<B : ?Sized> {
+pub struct BindingStorage<B: ?Sized> {
     vtable: *const (),
 
     /// link to the list of properties upon which we depends
@@ -133,71 +133,93 @@ pub struct BindingStorage<B : ?Sized> {
     // TODO: have static node, also no need for double link
     notify_dep: Cell<double_link::Head<NotifyList>>,
 
-
     // rev and rev_dep goes here
-    binding : B
+    binding: B,
 }
 
 impl<B> BindingStorage<B> {
-    pub fn new<T>(binding : B) -> Self where B: Binding<T> {
-        let vtable = unsafe {core::mem::transmute::<&dyn Binding<T>, internal::TraitObject>(&binding).vtable };
+    pub fn new<T>(binding: B) -> Self
+    where
+        B: Binding<T>,
+    {
+        let vtable = unsafe {
+            core::mem::transmute::<&dyn Binding<T>, internal::TraitObject>(&binding).vtable
+        };
         BindingStorage {
             vtable,
             rev_dep: Default::default(),
             notify_dep: Default::default(),
-            binding
+            binding,
         }
     }
 }
 
 struct BindingPtr<'a, T> {
     data: *const (),
-    phantom: PhantomData<&'a T>
+    phantom: PhantomData<&'a T>,
 }
 
 impl<'a, T> BindingPtr<'a, T> {
-    fn from(binding : Pin<&'a BindingStorage<dyn Binding<T> + 'a>>) -> Self {
-        let binding : &BindingStorage<dyn Binding<T>> = binding.get_ref();
+    fn from(binding: Pin<&'a BindingStorage<dyn Binding<T> + 'a>>) -> Self {
+        let binding: &BindingStorage<dyn Binding<T>> = binding.get_ref();
         let to = unsafe {
-            core::mem::transmute::<&'a BindingStorage<dyn Binding<T>>,
-                internal::TraitObject>(binding)
+            core::mem::transmute::<&'a BindingStorage<dyn Binding<T>>, internal::TraitObject>(
+                binding,
+            )
         };
         // by construction  FIXME!  why is it not the case
         // debug_assert_eq!(binding.vtable, to.vtable);
-        BindingPtr { data: to.data, phantom: PhantomData  }
+        BindingPtr {
+            data: to.data,
+            phantom: PhantomData,
+        }
     }
     unsafe fn from_raw(data: *const ()) -> Self {
-        BindingPtr{ data, phantom: PhantomData }
+        BindingPtr {
+            data,
+            phantom: PhantomData,
+        }
     }
-    fn into_raw(&self) -> *const () { self.data }
+    fn into_raw(&self) -> *const () {
+        self.data
+    }
     fn as_ref(&self) -> Pin<&'a dyn Binding<T>> {
-        let vtable = unsafe { *(self.data as *const *const()) };
+        let vtable = unsafe { *(self.data as *const *const ()) };
         let storage = unsafe {
-            core::mem::transmute::<
-                internal::TraitObject,
-                &'a BindingStorage<dyn Binding<T>>
-            >(internal::TraitObject{ data: self.data, vtable })
+            core::mem::transmute::<internal::TraitObject, &'a BindingStorage<dyn Binding<T>>>(
+                internal::TraitObject {
+                    data: self.data,
+                    vtable,
+                },
+            )
         };
         debug_assert_eq!(vtable, storage.vtable);
         unsafe { Pin::new_unchecked(&storage.binding) }
     }
 
     unsafe fn drop_binding(self) {
-        let vtable = *(self.data as *const *const());
+        let vtable = *(self.data as *const *const ());
         let storage = core::mem::transmute::<
-                internal::TraitObject,
-                &'a BindingStorage<dyn Binding<T>>
-            >(internal::TraitObject{ data: self.data, vtable });
-        Box::from_raw(storage as *const BindingStorage<dyn Binding<T>> as *mut BindingStorage<dyn Binding<T>>);
+            internal::TraitObject,
+            &'a BindingStorage<dyn Binding<T>>,
+        >(internal::TraitObject {
+            data: self.data,
+            vtable,
+        });
+        Box::from_raw(
+            storage as *const BindingStorage<dyn Binding<T>> as *mut BindingStorage<dyn Binding<T>>,
+        );
     }
 
     fn storage(&self) -> &'a BindingStorage<dyn Binding<T>> {
-        let vtable = unsafe { *(self.data as *const *const()) };
+        let vtable = unsafe { *(self.data as *const *const ()) };
         let storage = unsafe {
-            core::mem::transmute::<
-                internal::TraitObject,
-                &'a BindingStorage<dyn Binding<T>>
-            >(internal::TraitObject{ data: self.data, vtable })
+            core::mem::transmute::<internal::TraitObject, &'a BindingStorage<dyn Binding<T>>>(
+                internal::TraitObject {
+                    data: self.data,
+                    vtable,
+                },
+            )
         };
         debug_assert_eq!(vtable, storage.vtable);
         storage
@@ -211,13 +233,12 @@ impl<'a, T> core::ops::Deref for BindingPtr<'a, T> {
     }
 }
 
-
 #[derive(Default)]
 struct PropertyInternal<T> {
     // if value & 1 { BindingPtr<T> } else { double_link::Head<NotifyList> }
     // if value & 0b11, it needs to be dropped
     value: core::cell::Cell<usize>,
-    phantom: core::marker::PhantomData<(T, core::marker::PhantomPinned)>
+    phantom: core::marker::PhantomData<(T, core::marker::PhantomPinned)>,
 }
 
 impl<T> PropertyInternal<T> {
@@ -232,8 +253,11 @@ impl<T> PropertyInternal<T> {
     }
 
     unsafe fn notify_dep<'a>(&'a self) -> &'a Cell<double_link::Head<NotifyList>> {
-        self.binding().map(|b| &b.storage().notify_dep).unwrap_or_else(||
-            core::mem::transmute::<_, &'a Cell<double_link::Head<NotifyList>>>(&self.value))
+        self.binding()
+            .map(|b| &b.storage().notify_dep)
+            .unwrap_or_else(|| {
+                core::mem::transmute::<_, &'a Cell<double_link::Head<NotifyList>>>(&self.value)
+            })
     }
 
     unsafe fn set_binding<'a>(&'a self, b: Pin<&'a BindingStorage<dyn Binding<T> + 'a>>) {
@@ -242,7 +266,9 @@ impl<T> PropertyInternal<T> {
         let v = b.into_raw() as usize;
         assert!(v & 0b11 == 0);
         let v = v | 1usize;
-        if self.value.get() == v { return };
+        if self.value.get() == v {
+            return;
+        };
         self.remove_binding();
         self.value.set(v);
     }
@@ -270,7 +296,9 @@ impl<T> PropertyInternal<T> {
 
 impl<T> Drop for PropertyInternal<T> {
     fn drop(&mut self) {
-        unsafe { self.remove_binding(); }
+        unsafe {
+            self.remove_binding();
+        }
     }
 }
 
@@ -281,42 +309,47 @@ pub struct Property<T> {
     value: core::cell::UnsafeCell<T>,
 }
 
-impl<T : Clone> Property<T> {
-    pub fn set(self : Pin<&Self>, t: T) {
+impl<T: Clone> Property<T> {
+    pub fn set(self: Pin<&Self>, t: T) {
         unsafe { self.internal.remove_binding() };
         unsafe { *self.value.get() = t }
         self.update_dependencies();
     }
-    pub fn set_binding<'a>(self : Pin<&'a Self>, b: Pin<&'a BindingStorage<dyn Binding<T> + 'a>>) {
+    pub fn set_binding<'a>(self: Pin<&'a Self>, b: Pin<&'a BindingStorage<dyn Binding<T> + 'a>>) {
         unsafe { self.internal.set_binding(b) };
         self.notify(self);
     }
 
-    pub fn set_binding_owned<'a, B : Binding<T> + 'a>(self : Pin<&Self>, b: B) {
-        unsafe { self.internal.set_binding_box(Box::new(BindingStorage::new(b))) };
+    pub fn set_binding_owned<'a, B: Binding<T> + 'a>(self: Pin<&Self>, b: B) {
+        unsafe {
+            self.internal
+                .set_binding_box(Box::new(BindingStorage::new(b)))
+        };
         self.notify(self);
     }
 
-    pub fn get(self : Pin<&Self>) -> T {
+    pub fn get(self: Pin<&Self>) -> T {
         self.accessed();
         unsafe { &*self.value.get() }.clone()
     }
 }
 
 impl<T> Property<T> {
-    fn update_dependencies(self : Pin<&Self>) {
+    fn update_dependencies(self: Pin<&Self>) {
         let mut v = Default::default();
         unsafe { &mut *self.internal.notify_dep().as_ptr() }.swap(&mut v);
         for d in v {
             let elem = d.elem.clone();
             core::mem::drop(d); // One need to drop it to remove it from the rev list before calling update.
-            unsafe { Pin::new_unchecked(elem.as_ref()).notify(self); }
+            unsafe {
+                Pin::new_unchecked(elem.as_ref()).notify(self);
+            }
         }
     }
 }
 
 impl<T> NotificationReciever for Property<T> {
-    fn notify(self : Pin<&Self>, _from : Pin<&dyn PropertyBase>) {
+    fn notify(self: Pin<&Self>, _from: Pin<&dyn PropertyBase>) {
         if let Some(b) = unsafe { self.internal.binding() } {
             /*if self.updating.get() {
                 panic!("Circular dependency found : {}", self.description());
@@ -332,12 +365,13 @@ impl<T> NotificationReciever for Property<T> {
             //self.updating.set(false);
         }
     }
-    fn add_rev_dependency(self : Pin<&Self>, link: NonNull<DependencyNode>) {
+    fn add_rev_dependency(self: Pin<&Self>, link: NonNull<DependencyNode>) {
         unsafe {
-            self.internal.binding().map(|b| (&mut *b.rev_dep.as_ptr()).append(link) );
+            self.internal
+                .binding()
+                .map(|b| (&mut *b.rev_dep.as_ptr()).append(link));
         }
     }
-
 }
 
 impl<T> PropertyBase for Property<T> {
@@ -348,7 +382,6 @@ impl<T> PropertyBase for Property<T> {
     }
 }
 
-
 pub struct ChangeEvent<F: Fn() + ?Sized> {
     list: Cell<double_link::Head<NotifyList>>,
     func: F,
@@ -356,46 +389,47 @@ pub struct ChangeEvent<F: Fn() + ?Sized> {
 
 impl<F: Fn()> ChangeEvent<F> {
     pub fn new(func: F) -> Self {
-        ChangeEvent { func, list: Default::default() }
+        ChangeEvent {
+            func,
+            list: Default::default(),
+        }
     }
 
-    pub fn listen<T>(self: Pin<&Self>, p : Pin<&Property<T>>) {
+    pub fn listen<T>(self: Pin<&Self>, p: Pin<&Property<T>>) {
         self.listen_impl(p)
     }
 
-    fn listen_impl(self: Pin<&Self>, p : Pin<&dyn PropertyBase>) {
+    fn listen_impl(self: Pin<&Self>, p: Pin<&dyn PropertyBase>) {
         // cast away lifetime because we register the destructor anyway
-        let s = unsafe { core::mem::transmute::<&dyn NotificationReciever,
-            &(dyn NotificationReciever + 'static)>(&*self) };
+        let s = unsafe {
+            core::mem::transmute::<&dyn NotificationReciever, &(dyn NotificationReciever + 'static)>(
+                &*self,
+            )
+        };
         let b = Box::new(DependencyNode::new(s.into()));
         let b = unsafe { NonNull::new_unchecked(Box::into_raw(b)) };
         unsafe { (*self.list.as_ptr()).append(b) };
         p.as_ref().add_dependency(b);
-
     }
 }
 
-impl<F: Fn()> NotificationReciever for ChangeEvent<F>
-{
-    fn notify(self : Pin<&Self>, from : Pin<&dyn PropertyBase>) {
+impl<F: Fn()> NotificationReciever for ChangeEvent<F> {
+    fn notify(self: Pin<&Self>, from: Pin<&dyn PropertyBase>) {
         (self.func)();
         // re-add the signal
         self.listen_impl(from)
     }
 
-
     fn add_rev_dependency(self: Pin<&Self>, _link: NonNull<DependencyNode>) {
         unreachable!();
     }
-
 }
-
 
 #[cfg(test)]
 mod t {
 
     use super::*;
-/*
+    /*
     macro_rules! unsafe_pinned {
         ($v:vis $f:ident: $t:ty) => (
             $v fn $f<'__a>(
@@ -412,8 +446,6 @@ mod t {
 
     #[test]
     fn test_property() {
-
-
         macro_rules! make_binding {
             (struct $name:ident $(< $($lt:lifetime),* >)? : $st:literal $type:ty =>
                 | $state:ident : $state_ty:ty | $block:block ) => {
@@ -439,11 +471,13 @@ mod t {
         #[pin_project::pin_project]
         #[derive(Default)]
         struct Item {
-            #[pin] pub width: Property<f32>,
-            #[pin] pub height: Property<f32>,
-            #[pin] pub area: Property<f32>,
+            #[pin]
+            pub width: Property<f32>,
+            #[pin]
+            pub height: Property<f32>,
+            #[pin]
+            pub area: Property<f32>,
         }
-
 
         let i = Item::default();
         pin_utils::pin_mut!(i);
@@ -454,20 +488,18 @@ mod t {
         i.project_ref().height.set(12.);
         i.project_ref().width.set(8.);
         i.project_ref().area.set_binding(area_binding.as_ref());
-        assert_eq!(i.project_ref().area.get(), 12.*8.);
+        assert_eq!(i.project_ref().area.get(), 12. * 8.);
         i.project_ref().width.set(4.);
-        assert_eq!(i.project_ref().area.get(), 12.*4.);
+        assert_eq!(i.project_ref().area.get(), 12. * 4.);
 
         make_binding!(struct AreaBinding2<'a> : "Binding<f32>" f32 => |item : Pin<&'a Item> | {
             item.project_ref().height.get() + item.project_ref().width.get()
         });
         i.project_ref().area.set_binding_owned(AreaBinding2::new(i));
-        assert_eq!(i.project_ref().area.get(), 12.+4.);
+        assert_eq!(i.project_ref().area.get(), 12. + 4.);
         i.project_ref().height.set(8.);
-        assert_eq!(i.project_ref().area.get(), 8.+4.);
+        assert_eq!(i.project_ref().area.get(), 8. + 4.);
     }
-
-
 
     #[test]
     fn test_notify() {
@@ -493,4 +525,3 @@ mod t {
         assert_eq!(x.get(), 4);
     }
 }
-

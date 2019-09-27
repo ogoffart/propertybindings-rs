@@ -1,13 +1,13 @@
 //! This module is the old implementation of the property system, before Pin existed.
 //! The module properties_impl contains the new implementation and is used as implementation for this
+use crate::properties_impl;
 use std;
 use std::cell::RefCell;
 use std::convert::From;
 use std::default::Default;
-use std::rc::{Rc, Weak};
 use std::marker::PhantomData;
 use std::pin::Pin;
-use crate::properties_impl;
+use std::rc::{Rc, Weak};
 
 /// A binding is a function that returns a value of type T
 pub trait PropertyBindingFn<T> {
@@ -52,32 +52,40 @@ where
 #[derive(Default, Clone)]
 pub struct WeakProperty<'a, T> {
     d: Weak<properties_impl::Property<T>>,
-    phantom: PhantomData<&'a ()>
+    phantom: PhantomData<&'a ()>,
 }
 impl<'a, T: Default + Clone> WeakProperty<'a, T> {
     pub fn get(&self) -> Option<T> {
         // Safe because the original RC is pinned
-        self.d.upgrade().map(|x| unsafe{ Pin::new_unchecked(x) }.as_ref().get())
+        self.d
+            .upgrade()
+            .map(|x| unsafe { Pin::new_unchecked(x) }.as_ref().get())
     }
 }
 
 /// A Property represents a value which records when it is accessed. If the property's binding
 /// depends on others property, the property binding is automatically re-evaluated.
 // Fixme! the property should maybe be computed lazily, or the graph studied to avoid unnecesseray re-computation.
-pub struct Property<'a, T : Default> {
+pub struct Property<'a, T: Default> {
     d: Pin<Rc<properties_impl::Property<T>>>,
-    callbacks: RefCell<Vec<Pin<Box<properties_impl::ChangeEvent<dyn Fn() + 'a>>>>>
+    callbacks: RefCell<Vec<Pin<Box<properties_impl::ChangeEvent<dyn Fn() + 'a>>>>>,
 }
 impl<'a, T: Default> Default for Property<'a, T> {
     fn default() -> Self {
-        Property{ d: Rc::pin(properties_impl::Property::default()), callbacks: Default::default() }
+        Property {
+            d: Rc::pin(properties_impl::Property::default()),
+            callbacks: Default::default(),
+        }
     }
 }
 impl<'a, T: Default + Clone> Property<'a, T> {
     pub fn from_binding<F: PropertyBindingFn<T> + 'a>(f: F) -> Property<'a, T> {
         let d = Rc::pin(properties_impl::Property::default());
         d.as_ref().set_binding_owned(move || f.run().unwrap());
-        Property { d, callbacks: Default::default() }
+        Property {
+            d,
+            callbacks: Default::default(),
+        }
     }
 
     /// Set the value, and notify all the dependent property so their binding can be re-evaluated
@@ -112,7 +120,8 @@ impl<'a, T: Default + Clone> Property<'a, T> {
                 // FIXME: use Pin::into_inner_unchecked
                 std::mem::transmute::<
                     &std::pin::Pin<std::rc::Rc<properties_impl::Property<T>>>,
-                    &std::rc::Rc<properties_impl::Property<T>>>(&self.d)
+                    &std::rc::Rc<properties_impl::Property<T>>,
+                >(&self.d)
             }),
             phantom: PhantomData,
         }
@@ -121,10 +130,13 @@ impl<'a, T: Default + Clone> Property<'a, T> {
     /// One can add callback which are being called when the property changes.
     pub fn on_notify<F>(&self, callback: F)
     where
-        F: Fn(&T) + 'a, T: 'a
+        F: Fn(&T) + 'a,
+        T: 'a,
     {
         let d = self.d.clone();
-        let e = Box::pin(properties_impl::ChangeEvent::new(move || callback(&d.as_ref().get())));
+        let e = Box::pin(properties_impl::ChangeEvent::new(move || {
+            callback(&d.as_ref().get())
+        }));
         e.as_ref().listen(self.d.as_ref());
         self.callbacks.borrow_mut().push(e);
     }
