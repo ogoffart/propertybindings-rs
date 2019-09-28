@@ -84,6 +84,7 @@ where
 trait NotificationReciever {
     fn notify(self: Pin<&Self>, from: Pin<&dyn PropertyBase>);
     fn add_rev_dependency(self: Pin<&Self>, link: NonNull<DependencyNode>);
+    fn needs_drop(&self) -> bool { false }
 }
 
 trait PropertyBase {
@@ -236,99 +237,76 @@ impl<'a, T> core::ops::Deref for BindingPtr<'a, T> {
     }
 }
 
-#[derive(Default)]
-struct PropertyInternal<T> {
+#[repr(C)]
+pub struct Property<T> {
     // if value & 1 { BindingPtr<T> } else { double_link::Head<NotifyList> }
     // if value & 0b11, it needs to be dropped
-    value: core::cell::Cell<usize>,
-    phantom: core::marker::PhantomData<(T, core::marker::PhantomPinned)>,
+    internal: Cell<usize>,
+    phantom: core::marker::PhantomPinned,
+    value: core::cell::UnsafeCell<T>,
 }
 
-impl<T> PropertyInternal<T> {
-    unsafe fn binding<'a>(&'a self) -> Option<BindingPtr<'a, T>> {
-        let v = self.value.get();
+//Private API's
+impl<T> Property<T> {
+    fn binding<'a>(&'a self) -> Option<BindingPtr<'a, T>> {
+        let v = self.internal.get();
         if v & 0b1 == 0b1 {
             let v = v & (!0b11);
-            Some(BindingPtr::<'a, T>::from_raw(v as *const _))
+            Some(unsafe { BindingPtr::<'a, T>::from_raw(v as *const _) })
         } else {
             None
         }
     }
 
-    unsafe fn notify_dep<'a>(&'a self) -> &'a Cell<double_link::Head<NotifyList>> {
+    fn notify_dep<'a>(&'a self) -> &'a Cell<double_link::Head<NotifyList>> {
         self.binding()
             .map(|b| &b.storage().notify_dep)
-            .unwrap_or_else(|| {
-                core::mem::transmute::<_, &'a Cell<double_link::Head<NotifyList>>>(&self.value)
+            .unwrap_or_else(|| unsafe {
+                core::mem::transmute::<_, &'a Cell<double_link::Head<NotifyList>>>(&self.internal)
             })
     }
 
-    unsafe fn set_binding<'a>(&'a self, b: Pin<&'a BindingStorage<dyn Binding<T> + 'a>>) {
-        let b = BindingPtr::from(b);
-        (*self.notify_dep().as_ptr()).swap(&mut *b.notify_dep.as_ptr());
-        let v = b.into_raw() as usize;
-        assert!(v & 0b11 == 0);
-        let v = v | 1usize;
-        if self.value.get() == v {
-            return;
-        };
-        self.remove_binding();
-        self.value.set(v);
-    }
-
-    unsafe fn remove_binding<'a>(&'a self) {
-        let v = self.value.get();
+    fn remove_binding(self : Pin<&Self>) {
+        let v = self.internal.get();
         if let Some(b) = self.binding() {
-            self.value.set(0);
-            (*self.notify_dep().as_ptr()).swap(&mut *b.notify_dep.as_ptr());
-            if v & 0b11 == 0b11 {
-                b.drop_binding();
+            self.internal.set(0);
+            unsafe {
+                (*self.notify_dep().as_ptr()).swap(&mut *b.notify_dep.as_ptr());
+                if v & 0b11 == 0b11 {
+                    b.drop_binding();
+                }
             }
         }
     }
 
-    unsafe fn set_binding_box<'a>(&'a self, b: Box<BindingStorage<dyn Binding<T> + 'a>>) {
-        (*self.notify_dep().as_ptr()).swap(&mut *b.notify_dep.as_ptr());
-        self.remove_binding();
-        let ptr = Box::into_raw(b);
-        let v = core::mem::transmute::<_, internal::TraitObject>(ptr).data as usize;
-        assert!(v & 0b11 == 0);
-        self.value.set(v | 0b11usize);
-    }
 }
 
-impl<T> Drop for PropertyInternal<T> {
+impl<T> Drop for Property<T> {
     fn drop(&mut self) {
         unsafe {
-            self.remove_binding();
+            Pin::new_unchecked(&*self).remove_binding();
+            let head_ptr = &self.internal as *const _;
+            let head : double_link::Head<NotifyList> =  core::ptr::read(head_ptr as *const _);
+            core::mem::drop(head);
         }
     }
 }
 
-#[derive(Default)]
-#[repr(C)]
-pub struct Property<T> {
-    internal: PropertyInternal<T>,
-    value: core::cell::UnsafeCell<T>,
+impl<T : Default> Default for Property<T> {
+    fn default() -> Self {
+        Property {
+            internal: Cell::new(0),
+            phantom: core::marker::PhantomPinned,
+            value: Default::default()
+        }
+    }
 }
 
 impl<T: Clone> Property<T> {
     pub fn set(self: Pin<&Self>, t: T) {
-        unsafe { self.internal.remove_binding() };
+        self.remove_binding();
         unsafe { *self.value.get() = t }
         self.update_dependencies();
-    }
-    pub fn set_binding<'a>(self: Pin<&'a Self>, b: Pin<&'a BindingStorage<dyn Binding<T> + 'a>>) {
-        unsafe { self.internal.set_binding(b) };
-        self.notify(self);
-    }
-
-    pub fn set_binding_owned<'a, B: Binding<T> + 'a>(self: Pin<&Self>, b: B) {
-        unsafe {
-            self.internal
-                .set_binding_box(Box::new(BindingStorage::new(b)))
-        };
-        self.notify(self);
     }
 
     pub fn get(self: Pin<&Self>) -> T {
@@ -338,9 +316,38 @@ impl<T: Clone> Property<T> {
 }
 
 impl<T> Property<T> {
+    pub fn set_binding<'a>(self: Pin<&'a Self>, b: Pin<&'a BindingStorage<dyn Binding<T> + 'a>>) {
+        let b = BindingPtr::from(b);
+        unsafe {
+            (*self.notify_dep().as_ptr()).swap(&mut *b.notify_dep.as_ptr());
+            let v = b.into_raw() as usize;
+            assert!(v & 0b11 == 0);
+            let v = v | 1usize;
+            if self.internal.get() == v {
+                return;
+            };
+            self.remove_binding();
+            self.internal.set(v);
+        }
+        self.notify(self);
+    }
+
+    pub fn set_binding_owned<'a, B: Binding<T> + 'a>(self: Pin<&Self>, b: B) {
+        let b : Box<BindingStorage<dyn Binding<T> + 'a>> = Box::new(BindingStorage::new(b));
+        unsafe {
+            (*self.notify_dep().as_ptr()).swap(&mut *b.notify_dep.as_ptr());
+            self.remove_binding();
+            let ptr = Box::into_raw(b);
+            let v = core::mem::transmute::<_, internal::TraitObject>(ptr).data as usize;
+            assert!(v & 0b11 == 0);
+            self.internal.set(v | 0b11usize);
+        }
+        self.notify(self);
+    }
+
     fn update_dependencies(self: Pin<&Self>) {
         let mut v = Default::default();
-        unsafe { &mut *self.internal.notify_dep().as_ptr() }.swap(&mut v);
+        unsafe { &mut *self.notify_dep().as_ptr() }.swap(&mut v);
         for d in v {
             let elem = d.elem.clone();
             core::mem::drop(d); // One need to drop it to remove it from the rev list before calling update.
@@ -353,7 +360,7 @@ impl<T> Property<T> {
 
 impl<T> NotificationReciever for Property<T> {
     fn notify(self: Pin<&Self>, _from: Pin<&dyn PropertyBase>) {
-        if let Some(b) = unsafe { self.internal.binding() } {
+        if let Some(b) = self.binding() {
             /*if self.updating.get() {
                 panic!("Circular dependency found : {}", self.description());
             }
@@ -370,8 +377,7 @@ impl<T> NotificationReciever for Property<T> {
     }
     fn add_rev_dependency(self: Pin<&Self>, link: NonNull<DependencyNode>) {
         unsafe {
-            self.internal
-                .binding()
+            self.binding()
                 .map(|b| (&mut *b.rev_dep.as_ptr()).append(link));
         }
     }
@@ -380,7 +386,7 @@ impl<T> NotificationReciever for Property<T> {
 impl<T> PropertyBase for Property<T> {
     fn add_dependency(&self, link: NonNull<DependencyNode>) {
         unsafe {
-            (&mut *self.internal.notify_dep().as_ptr()).append(link);
+            (&mut *self.notify_dep().as_ptr()).append(link);
         }
     }
 }
