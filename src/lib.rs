@@ -10,14 +10,6 @@
 
 #![recursion_limit = "512"]
 
-#[macro_use]
-extern crate cstr;
-
-#[macro_use]
-extern crate qmetaobject;
-
-#[macro_use]
-extern crate cpp;
 
 #[macro_use]
 pub mod properties;

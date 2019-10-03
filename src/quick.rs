@@ -1,106 +1,134 @@
 use super::items::{Item, MouseEvent};
-use qmetaobject::scenegraph::{ContainerNode, SGNode};
-use qmetaobject::{QObject, QQuickItem, QRectF};
-use std::any::TypeId;
-use std::collections::hash_map::DefaultHasher;
-use std::ffi::CString;
-use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+use swsurface::{Format, SwWindow};
+
 
 /// Use as a factory for RSMLItem
 pub trait ItemFactory {
     fn create() -> Rc<dyn Item<'static>>;
 }
 
-/// A QQuickItem which is showing an Item
-#[derive(QObject)]
-pub struct RSMLItem<T: ItemFactory + 'static> {
-    base: qt_base_class!(trait QQuickItem),
-    node: Option<Rc<dyn Item<'static> + 'static>>,
-    _phantom: ::std::marker::PhantomData<T>,
-}
-impl<T: ItemFactory + 'static> RSMLItem<T> {
-    fn set_node(&mut self, node: Rc<dyn Item<'static>>) {
-        node.init(self);
-        self.node = Some(node);
-        {
-            //FIXME! I guess qmetaobject::QQuickItem should expose an API for that
-            let obj = self.get_cpp_object();
-            assert!(!obj.is_null());
-            cpp!(unsafe [obj as "QQuickItem*"] {
-                obj->setFlag(QQuickItem::ItemHasContents);
-                obj->setAcceptedMouseButtons(Qt::LeftButton);
-            });
-        }
-        (self as &dyn QQuickItem).update();
-    }
-}
-impl<T: ItemFactory + 'static> Default for RSMLItem<T> {
-    fn default() -> Self {
-        RSMLItem {
-            base: Default::default(),
-            node: None,
-            _phantom: Default::default(),
-        }
-    }
-}
-
-impl<T: ItemFactory + 'static> QQuickItem for RSMLItem<T> {
-    fn update_paint_node(&mut self, mut node: SGNode<ContainerNode>) -> SGNode<ContainerNode> {
-        if let Some(ref i) = self.node {
-            node = i.update_paint_node(node, self);
-        }
-        node
-    }
-
-    fn geometry_changed(&mut self, new_geometry: QRectF, _old_geometry: QRectF) {
-        if let Some(ref i) = self.node {
-            i.geometry().width.set(new_geometry.width);
-            i.geometry().height.set(new_geometry.height);
-        }
-        (self as &dyn QQuickItem).update();
-    }
-
-    fn class_begin(&mut self) {
-        self.set_node(T::create());
-    }
-
-    fn mouse_event(&mut self, event: ::qmetaobject::QMouseEvent<'_>) -> bool {
-        let pos = event.position();
-        let e = match event.event_type() {
-            ::qmetaobject::QMouseEventType::MouseButtonPress => MouseEvent::Press(pos),
-            ::qmetaobject::QMouseEventType::MouseButtonRelease => MouseEvent::Release(pos),
-            ::qmetaobject::QMouseEventType::MouseMove => MouseEvent::Move(pos),
-        };
-        self.node.as_ref().map_or(false, |n| n.mouse_event(e))
-    }
-}
-
-/// Show a QQuickWindow showing an instance of the item created by the ItemFactory
 pub fn show_window<T: ItemFactory + 'static>() {
-    // Compute a somehow unique type name for this type
-    let mut hasher = DefaultHasher::new();
-    TypeId::of::<T>().hash(&mut hasher);
-    let type_name = format!("RSMLItem_{}", hasher.finish());
-    let name = CString::new(type_name).unwrap();
 
-    ::qmetaobject::qml_register_type::<RSMLItem<T>>(&name, 1, 0, &name);
-    let mut engine = ::qmetaobject::QmlEngine::new();
+    use winit::{
+        event::{Event, WindowEvent},
+        event_loop::{ControlFlow, EventLoop},
+        window::WindowBuilder,
+    };
 
-    engine.load_data(
-        format!(
-            r#"
-import QtQuick 2.0;
-import QtQuick.Window 2.0;
-import {name} 1.0;
-Window {{
-    visible: true;
-    {name} {{ anchors.fill: parent; }}
-}}
-        "#,
-            name = name.to_str().unwrap()
-        )
-        .into(),
-    );
-    engine.exec();
+    let item = T::create();
+
+    let event_loop = EventLoop::new();
+    let window = WindowBuilder::new().build(&event_loop).unwrap();
+
+
+    let event_loop_proxy = event_loop.create_proxy();
+    let sw_context = swsurface::ContextBuilder::new(&event_loop)
+        .with_ready_cb(move |_| {
+            let _ = event_loop_proxy.send_event(());
+        })
+        .build();
+
+    let sw_window = SwWindow::new(window, &sw_context, &Default::default());
+
+    let format = [Format::Xrgb8888, Format::Argb8888]
+        .iter()
+        .cloned()
+        .find(|&fmt1| sw_window.supported_formats().any(|fmt2| fmt1 == fmt2))
+        .unwrap();
+
+    sw_window.update_surface_to_fit(format);
+    sw_window.window().request_redraw();
+
+    let mut cursor_pos = piet_common::kurbo::Point::ORIGIN;
+
+    event_loop.run(move |event, _, control_flow| {
+        match event {
+
+            Event::WindowEvent { event: WindowEvent::Resized(_), .. } |
+            Event::WindowEvent { event: WindowEvent::HiDpiFactorChanged(_), ..} => {
+                sw_window.update_surface_to_fit(format);
+                let [width, height] = sw_window.image_info().extent;
+                item.geometry().width.set(width.into());
+                item.geometry().height.set(height.into());
+                redraw(&sw_window, item.clone());
+            }
+
+            Event::EventsCleared => {
+                // Application update code.
+
+                // Queue a RedrawRequested event.
+                //sw_window.window().request_redraw();
+            },
+            Event::WindowEvent {
+                event: WindowEvent::RedrawRequested,
+                ..
+            } => {
+                // Redraw the application.
+                //
+                // It's preferrable to render in this event rather than in EventsCleared, since
+                // rendering in here allows the program to gracefully handle redraws requested
+                // by the OS.
+                redraw(&sw_window, item.clone());
+            },
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => {
+                println!("The close button was pressed; stopping");
+                *control_flow = ControlFlow::Exit
+            },
+            Event::WindowEvent {
+                event: WindowEvent::CursorMoved{ position, .. },
+                ..
+            } => {
+                let f = sw_window.window().hidpi_factor();
+                cursor_pos = piet_common::kurbo::Point::new(position.x*f, position.y*f);
+                item.mouse_event(MouseEvent::Move(cursor_pos));
+            },
+            Event::WindowEvent {
+                event: WindowEvent::MouseInput{ state, .. },
+                ..
+            } => {
+                item.mouse_event(match state {
+                    winit::event::ElementState::Pressed => MouseEvent::Press(cursor_pos),
+                    winit::event::ElementState::Released => MouseEvent::Release(cursor_pos),
+                });
+                // FIXME: listen on property changes
+                sw_window.window().request_redraw();
+            }
+            // ControlFlow::Poll continuously runs the event loop, even if the OS hasn't
+            // dispatched any events. This is ideal for games and similar applications.
+            //_ => *control_flow = ControlFlow::Poll,
+            // ControlFlow::Wait pauses the event loop if no events are available to process.
+            // This is ideal for non-game applications that only update in response to user
+            // input, and uses significantly less power/CPU time than ControlFlow::Poll.
+            _ => *control_flow = ControlFlow::Wait,
+        }
+    });
 }
+
+fn redraw(sw_window: &SwWindow, item: Rc<dyn Item>) {
+
+    use piet_common::{ImageFormat, RenderContext, Color};
+    use piet_common::Device;
+
+    if let Some(image_index) = sw_window.poll_next_image() {
+        let device = Device::new().unwrap();
+        let swsurface::ImageInfo { extent: [width, height], stride, .. } = sw_window.image_info();
+        let mut bitmap = device.bitmap_target(width as usize, height as usize, 1.0).unwrap();
+        let mut rc = bitmap.render_context();
+        rc.clear(Color::WHITE);
+        item.draw(&mut rc).unwrap();
+        // FIXME!  This is too slow. can't we directly paint on the surface?
+        let raw_pixels = bitmap.into_raw_pixels(ImageFormat::RgbaPremul).unwrap();
+        {
+            let mut surface = sw_window.lock_image(image_index);
+            for y in 0..(height as usize) {
+                (*surface)[y*stride..(y*stride + (4*width as usize))].copy_from_slice(&raw_pixels[y*(width as usize)*4..(y+1)*(width as usize)*4]);
+            }
+        }
+        sw_window.present_image(image_index);
+    }
+}
+

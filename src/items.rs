@@ -1,10 +1,10 @@
 use super::*;
-use qmetaobject::scenegraph::{ContainerNode, RectangleNode, SGNode, TransformNode};
-use qmetaobject::{QColor, QJSValue, QMetaType, QPointF, QQuickItem, QRectF, QString};
 use std::cell::RefCell;
-use std::ffi::CStr;
-use std::os::raw::c_void;
 use std::rc::Rc;
+
+use piet_common::{Piet, RenderContext};
+
+pub type DrawResult = Result<(), piet_common::Error>;
 
 #[derive(Default)]
 pub struct Geometry<'a> {
@@ -39,13 +39,8 @@ impl<'a> Geometry<'a> {
         self.y.get() + self.height.get() / 2.
     }
 
-    pub fn to_qrectf(&self) -> QRectF {
-        QRectF {
-            x: self.left(),
-            y: self.top(),
-            width: self.width(),
-            height: self.height(),
-        }
+    pub fn to_rect(&self) -> piet_common::kurbo::Rect {
+        piet_common::kurbo::Rect::new(self.left(), self.top(), self.right(), self.bottom())
     }
 }
 /*
@@ -76,6 +71,8 @@ impl<'a> Default for LayoutInfo<'a> {
     }
 }
 
+type QPointF = piet_common::kurbo::Point;
+
 #[derive(Clone, Copy)]
 pub enum MouseEvent {
     Press(QPointF),
@@ -98,7 +95,7 @@ impl MouseEvent {
     pub fn translated(mut self, translation: QPointF) -> MouseEvent {
         {
             let pos = self.position_ref();
-            *pos += translation;
+            *pos += translation.to_vec2();
         }
         self
     }
@@ -107,14 +104,7 @@ impl MouseEvent {
 pub trait Item<'a> {
     fn geometry(&self) -> &Geometry<'a>;
     fn layout_info(&self) -> &LayoutInfo<'a>;
-    fn update_paint_node(
-        &self,
-        node: SGNode<ContainerNode>,
-        _item: &dyn QQuickItem,
-    ) -> SGNode<ContainerNode> {
-        node
-    }
-    fn init(&self, _item: &(dyn QQuickItem + 'a)) {}
+    fn draw(&self, _rc: &mut Piet) -> DrawResult { Ok(()) }
     fn mouse_event(&self, _event: MouseEvent) -> bool {
         false
     }
@@ -134,15 +124,8 @@ where
     fn layout_info(&self) -> &LayoutInfo<'a> {
         ::std::ops::Deref::deref(self).layout_info()
     }
-    fn update_paint_node(
-        &self,
-        node: SGNode<ContainerNode>,
-        item: &dyn QQuickItem,
-    ) -> SGNode<ContainerNode> {
-        ::std::ops::Deref::deref(self).update_paint_node(node, item)
-    }
-    fn init(&self, item: &(dyn QQuickItem + 'a)) {
-        (**self).init(item)
+    fn draw(&self, rc: &mut Piet) -> DrawResult {
+        ::std::ops::Deref::deref(self).draw(rc)
     }
     fn mouse_event(&self, event: MouseEvent) -> bool {
         ::std::ops::Deref::deref(self).mouse_event(event)
@@ -253,37 +236,23 @@ macro_rules! declare_box_layout {
             fn layout_info(&self) -> &LayoutInfo<'a> {
                 &self.layout_info
             }
-
-            fn update_paint_node(
-                &self,
-                mut node: SGNode<ContainerNode>,
-                item: &dyn QQuickItem,
-            ) -> SGNode<ContainerNode> {
-                let g = self.geometry();
-                node.update_static(|mut n: SGNode<TransformNode>| -> SGNode<TransformNode> {
-                    n.set_translation(g.left(), g.top());
-                    n.update_sub_node(|mut node: SGNode<ContainerNode>| {
-                        node.update_dynamic(self.children.borrow().iter(), |i, n| {
-                            i.update_paint_node(n, item)
-                        });
-                        node
-                    });
-                    n
-                });
-                node
+            fn draw(&self, rc: &mut Piet) -> DrawResult {
+                let g = self.geometry().to_rect();
+                rc.with_save(|rc| {
+                    rc.transform(piet_common::kurbo::Affine::translate(g.origin().to_vec2()));
+                    for child in self.children.borrow().iter() {
+                        child.draw(rc)?
+                    }
+                    Ok(())
+                })
             }
 
-            fn init(&self, item: &(dyn QQuickItem + 'a)) {
-                for i in self.children.borrow().iter() {
-                    i.init(item);
-                }
-            }
 
             fn mouse_event(&self, event: MouseEvent) -> bool {
                 for i in self.children.borrow().iter() {
-                    let g = i.geometry().to_qrectf();
+                    let g = i.geometry().to_rect();
                     if g.contains(event.position()) {
-                        return i.mouse_event(event.translated(g.top_left()));
+                        return i.mouse_event(event.translated(g.origin()));
                     }
                 }
                 return false;
@@ -549,29 +518,15 @@ impl<'a> Item<'a> for Container<'a> {
         &self.layout_info
     }
 
-    fn update_paint_node(
-        &self,
-        mut node: SGNode<ContainerNode>,
-        item: &dyn QQuickItem,
-    ) -> SGNode<ContainerNode> {
-        let g = self.geometry();
-        node.update_static(|mut n: SGNode<TransformNode>| -> SGNode<TransformNode> {
-            n.set_translation(g.left(), g.top());
-            n.update_sub_node(|mut node: SGNode<ContainerNode>| {
-                node.update_dynamic(self.children.borrow().iter(), |i, n| {
-                    i.update_paint_node(n, item)
-                });
-                node
-            });
-            n
-        });
-        node
-    }
-
-    fn init(&self, item: &(dyn QQuickItem + 'a)) {
-        for i in self.children.borrow().iter() {
-            i.init(item);
-        }
+    fn draw(&self, rc: &mut Piet) -> DrawResult {
+        let g = self.geometry().to_rect();
+        rc.with_save(|rc| {
+            rc.transform(piet_common::kurbo::Affine::translate(g.origin().to_vec2()));
+            for child in self.children.borrow().iter() {
+                child.draw(rc)?
+            }
+            Ok(())
+        })
     }
 
     fn mouse_event(&self, event: MouseEvent) -> bool {
@@ -611,6 +566,15 @@ impl<'a> Container<'a> {
     }
 }
 
+#[derive(Clone)]
+pub struct QColor(piet_common::Color);
+impl Default for QColor {
+    fn default() -> Self { Self(piet_common::Color::WHITE) }
+}
+impl From<u32> for QColor {
+    fn from(val : u32) -> Self { Self(piet_common::Color::from_rgba32_u32(val.swap_bytes())) }
+}
+
 #[derive(Default)]
 pub struct Rectangle<'a> {
     pub geometry: Geometry<'a>,
@@ -626,27 +590,11 @@ impl<'a> Item<'a> for Rectangle<'a> {
         &self.layout_info
     }
 
-    fn init(&self, item: &(dyn QQuickItem + 'a)) {
-        let item_ptr = qmetaobject::QPointer::<dyn QQuickItem>::from(item);
-        self.color.on_notify(move |_| {
-            if let Some(x) = item_ptr.as_ref() {
-                x.update()
-            };
-        });
-    }
-
-    fn update_paint_node(
-        &self,
-        mut node: SGNode<ContainerNode>,
-        item: &dyn QQuickItem,
-    ) -> SGNode<ContainerNode> {
-        node.update_static(|mut n: SGNode<RectangleNode>| -> SGNode<RectangleNode> {
-            n.create(item);
-            n.set_color(self.color.get());
-            n.set_rect(self.geometry.to_qrectf());
-            n
-        });
-        node
+    fn draw(&self, rc: &mut Piet) -> DrawResult {
+        let g = self.geometry().to_rect();
+        let b = rc.solid_brush(self.color.get().0);
+        rc.fill(g, &b);
+        Ok(())
     }
 }
 impl<'a> Rectangle<'a> {
@@ -655,80 +603,6 @@ impl<'a> Rectangle<'a> {
     }
 }
 
-cpp! {{
-#include <QtQuick/QQuickItem>
-#include <QtQml/QQmlEngine>
-}}
-
-/// This allow to wrap any QQuickItem in order to get its scene graph node.
-/// Note that the wrapped item will be hidden and will not handle events.
-/// The goal is mostly to access scene graph nodes which would otherwise be private.
-#[derive(Default)]
-pub struct QmlItemWrapper {
-    internal_item: RefCell<QJSValue>,
-}
-impl QmlItemWrapper {
-    /// Create the internal QQuickItem, as a child of `item`.
-    /// `name`  is the QML Type  (for example "Text".
-    /// You should call link_property after calling init to initialize the properties.
-    pub fn init(&self, item: &dyn QQuickItem, name: QString) {
-        let item = item.get_cpp_object();
-        let js = cpp!(unsafe [item as "QQuickItem*", name as "QString"] -> QJSValue as "QJSValue" {
-            if (!item) return {};
-            if (auto *engine = qmlEngine(item)) {
-                auto v = engine->evaluate(
-                    "(function (i) { return Qt.createQmlObject('import QtQuick 2.0; " + name
-                        + "{visible: false;}', i, 'RustTextItem')} )");
-                auto js = v.call( { engine->newQObject(item) });
-                if (auto i = qobject_cast<QQuickItem*>(js.toQObject())) {
-                    // Don't let the normal scenegraph call updatePaintNode on it.
-                    i->setFlag(QQuickItem::ItemHasContents, false);
-                }
-                return js;
-            }
-            return {};
-        });
-        *self.internal_item.borrow_mut() = js.clone();
-    }
-
-    /// Link a Property to a QML property of the item.
-    /// When the Property is changed, it will be updated the property on QQuickItem with the
-    /// given name. (Not the other way around).
-    pub fn link_property<'a, T: QMetaType>(&self, p: &Property<'a, T>, name: &'static CStr) {
-        let js = self.internal_item.borrow().clone();
-        let func = move |t: &T| {
-            let var = t.to_qvariant();
-            let name = name.as_ptr();
-            cpp!(unsafe [var as "QVariant", js as "QJSValue", name as "const char*"] {
-                if (auto item = qobject_cast<QQuickItem*>(js.toQObject())) {
-                    item->setProperty(name, var);
-                    if (QQuickItem *par = item->parentItem())
-                        par->update();
-                }
-            });
-        };
-        func(&p.value());
-        p.on_notify(func);
-    }
-
-    // unsafe because the node is not typed to this particular item
-    pub unsafe fn update_node(&self, n: SGNode<()>) -> SGNode<()> {
-        let raw = n.into_raw();
-        let internal_item = self.internal_item.as_ptr();
-        SGNode::from_raw(cpp!([internal_item as "QJSValue*", raw as "QSGNode*"]
-                ->  *mut c_void as "QSGNode*" {
-            if (auto item = qobject_cast<QQuickItem*>(internal_item->toQObject())) {
-                // updatePaintNode is protected
-                struct Helper : QQuickItem {
-                    static constexpr auto upn() -> QSGNode* (QQuickItem::*)(QSGNode *, QQuickItem::UpdatePaintNodeData *)
-                    { return &Helper::updatePaintNode; }
-                };
-                return (item->*Helper::upn())(raw, nullptr);
-            }
-            return nullptr;
-        }))
-    }
-}
 
 /// constants that follow Qt::Alignment
 pub mod alignment {
@@ -742,15 +616,14 @@ pub mod alignment {
 
 }
 
-/// Wraps a QtQuick Text
 #[derive(Default)]
 pub struct Text<'a> {
     pub geometry: Geometry<'a>,
     pub layout_info: LayoutInfo<'a>,
-    pub text: Property<'a, QString>,
+    pub text: Property<'a, String>,
     pub vertical_alignment: Property<'a, i32>,
     pub horizontal_alignment: Property<'a, i32>,
-    wrapper: QmlItemWrapper,
+    pub color: Property<'a, QColor>,
 }
 
 impl<'a> Item<'a> for Text<'a> {
@@ -761,41 +634,23 @@ impl<'a> Item<'a> for Text<'a> {
         &self.layout_info
     }
 
-    fn update_paint_node(
-        &self,
-        mut node: SGNode<ContainerNode>,
-        _item: &dyn QQuickItem,
-    ) -> SGNode<ContainerNode> {
-        node.update_static(|mut n: SGNode<TransformNode>| {
-            let g = self.geometry();
-            n.set_translation(g.left(), g.top());
-            n.update_sub_node(|mut node: SGNode<ContainerNode>| {
-                node.update_static(|n: SGNode<()>| -> SGNode<()> {
-                    unsafe { self.wrapper.update_node(n) }
-                });
-                node
-            });
-            n
-        });
-        node
+    fn draw(&self, rc: &mut Piet) -> DrawResult {
+        use piet_common::{Text, TextLayoutBuilder, FontBuilder};
+        let t = rc.text();
+        let f = t.new_font_by_name("", 30.)?.build()?;
+        let lay = t.new_text_layout(&f, &self.text.get())?.build()?;
+        let b = rc.solid_brush(self.color.get().0);
+        let pos = self.geometry().to_rect().center(); // FIXME
+        rc.draw_text(&lay , pos , &b);
+        Ok(())
     }
 
-    fn init(&self, item: &(dyn QQuickItem + 'a)) {
-        self.wrapper.init(item, "Text".into());
-        self.wrapper.link_property(&self.text, cstr!("text"));
-        self.wrapper
-            .link_property(&self.geometry.width, cstr!("width"));
-        self.wrapper
-            .link_property(&self.geometry.height, cstr!("height"));
-        self.wrapper
-            .link_property(&self.vertical_alignment, cstr!("verticalAlignment"));
-        self.wrapper
-            .link_property(&self.horizontal_alignment, cstr!("horizontalAlignment"));
-    }
 }
 impl<'a> Text<'a> {
     pub fn new() -> Rc<Self> {
-        Default::default()
+        let t = Rc::<Self>::default();
+        t.color.set(QColor::from(0xff000000));
+        t
     }
 }
 

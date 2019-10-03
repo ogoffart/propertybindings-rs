@@ -17,12 +17,11 @@ struct PlusMinus {
 impl propertybindings::quick::ItemFactory for PlusMinus {
     fn create() -> Rc<dyn propertybindings::items::Item<'static>> {
         use propertybindings::items::*;
-        use qmetaobject::{QColor, QString};
 
         rsml! { struct Button : Container {
             @signal on_clicked,
-            text: QString;
-            Rectangle { color: QColor::from_name(if mouse.pressed.get() {"#aaa"} else {"#ccc"} ) }
+            text: String;
+            Rectangle { color: QColor::from(if mouse.pressed.get() {0xffaaaaaa} else {0xffcccccc} ) }
             Text {
                 text: Button.text.get(),
                 vertical_alignment: alignment::VCENTER,
@@ -41,7 +40,7 @@ impl propertybindings::quick::ItemFactory for PlusMinus {
         rsml!(
             ColumnLayout {
                 Button {
-                    text: "-".into(),
+                    text: "+".into(),
                     on_clicked: model1.counter.set(model1.counter.get() + 1)
                 }
                 Text {
