@@ -21,3 +21,36 @@ pub mod items;
 pub mod quick;
 
 pub mod properties_impl;
+
+mod pin_weak {
+    use core::pin::Pin;
+    use std::rc::{Rc, Weak};
+
+
+    /// Like a std::rc::Weak, but can be constructed from a Pin<Rc>
+    pub struct PinWeak<T>(Weak<T>);
+    impl<T> Default for PinWeak<T> {
+        fn default() -> Self { PinWeak(Default::default()) }
+    }
+    impl<T> Clone for PinWeak<T> {
+        fn clone(&self) -> Self { PinWeak(self.0.clone()) }
+    }
+    impl<T> PinWeak<T> {
+        //pub fn new() -> Self { Default::default() }
+
+        pub fn upgrade(&self) -> Option<Pin<Rc<T>>> {
+            self.0.upgrade().map(|r| unsafe {
+                // This is safe because only created from a Pin<Rc<T>
+                Pin::new_unchecked(r)
+            })
+        }
+
+        pub fn downgrade_from(p: &Pin<Rc<T>>) -> Self {
+            Self(Rc::downgrade(unsafe {
+                // FIXME: use Pin::into_inner_unchecked
+                std::mem::transmute::<&Pin<Rc<T>>, &Rc<T>, >(&p)
+            }))
+        }
+    }
+
+}

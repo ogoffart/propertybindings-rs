@@ -5,9 +5,8 @@ use std;
 use std::cell::RefCell;
 use std::convert::From;
 use std::default::Default;
-use std::marker::PhantomData;
 use std::pin::Pin;
-use std::rc::{Rc, Weak};
+use std::rc::{Rc};
 
 /// A binding is a function that returns a value of type T
 pub trait PropertyBindingFn<T> {
@@ -51,8 +50,7 @@ where
 
 #[derive(Default, Clone)]
 pub struct WeakProperty<'a, T> {
-    d: Weak<properties_impl::Property<T>>,
-    phantom: PhantomData<&'a ()>,
+    d: crate::pin_weak::PinWeak<properties_impl::Property<'a, T>>,
 }
 impl<'a, T: Default + Clone> WeakProperty<'a, T> {
     pub fn get(&self) -> Option<T> {
@@ -67,7 +65,7 @@ impl<'a, T: Default + Clone> WeakProperty<'a, T> {
 /// depends on others property, the property binding is automatically re-evaluated.
 // Fixme! the property should maybe be computed lazily, or the graph studied to avoid unnecesseray re-computation.
 pub struct Property<'a, T: Default> {
-    d: Pin<Rc<properties_impl::Property<T>>>,
+    d: Pin<Rc<properties_impl::Property<'a, T>>>,
     callbacks: RefCell<Vec<Pin<Box<properties_impl::ChangeEvent<dyn Fn() + 'a>>>>>,
 }
 impl<'a, T: Default> Default for Property<'a, T> {
@@ -116,14 +114,7 @@ impl<'a, T: Default + Clone> Property<'a, T> {
 
     pub fn as_weak(&self) -> WeakProperty<'a, T> {
         WeakProperty {
-            d: Rc::downgrade(unsafe {
-                // FIXME: use Pin::into_inner_unchecked
-                std::mem::transmute::<
-                    &std::pin::Pin<std::rc::Rc<properties_impl::Property<T>>>,
-                    &std::rc::Rc<properties_impl::Property<T>>,
-                >(&self.d)
-            }),
-            phantom: PhantomData,
+            d: crate::pin_weak::PinWeak::downgrade_from(&self.d),
         }
     }
 
