@@ -9,9 +9,28 @@ keywords = ["qml", "gui"]
 edition = "2018"
 
 [dependencies]
-winit = "0.20.0-alpha3"
+image= { version = "0.22.3", default-features=false, features = ["jpeg", "png_codec"] }
+
+winit = { version = "0.20.0-alpha4" }
+
+[features]
+web = ["winit/stdweb"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# winit = { version = "0.20.0-alpha4" }
+# winit = { git = "https://github.com/rust-windowing/winit" }
 swsurface = "0.1.2"
+# swsurface = { path = "../swsurface-rs" }
 piet-common = "0.0.6"
+
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+stdweb = "0.4.19"
+# webgl_stdweb = "0.3"
+# web-sys = { version = "0.3.10", features = ["Window", "CanvasGradient", "CanvasRenderingContext2d", "CanvasWindingRule", "Document", "Element", "HtmlCanvasElement", "ImageBitmap", "ImageData", "TextMetrics"] }
+piet-cargoweb = {path="../piet-cargoweb", package="piet-cargoweb" }
+# winit_web = { version="0.20.0-alpha4", features=["stdweb"], package="winit" }
+
 
 [dev-dependencies]
 pin-utils = "0.1.0-alpha.4"

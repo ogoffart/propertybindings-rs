@@ -687,3 +687,45 @@ impl<'a> MouseArea<'a> {
         Default::default()
     }
 }
+
+
+#[derive(Default)]
+pub struct Image<'a> {
+    pub geometry: Geometry<'a>,
+    pub layout_info: LayoutInfo<'a>,
+    pub image: Property<'a, Option<image::DynamicImage>>,
+}
+
+impl<'a> Item<'a> for Image<'a> {
+    fn geometry(&self) -> &Geometry<'a> {
+        &self.geometry
+    }
+    fn layout_info(&self) -> &LayoutInfo<'a> {
+        &self.layout_info
+    }
+
+    fn draw(&self, rc: &mut Piet) -> DrawResult {
+        let g = self.geometry().to_rect();
+        if g.area() <= 0. {
+            return Ok(());
+        }
+        if let Some(im) = self.image.get() {
+            let im = im.to_rgba();
+            let im = rc.make_image(
+                im.width() as _,
+                im.height() as _,
+                &im.into_raw(),
+                piet_common::ImageFormat::RgbaSeparate,
+            )?;
+            rc.draw_image(&im, g, piet_common::InterpolationMode::NearestNeighbor);
+        }
+        Ok(())
+    }
+
+}
+impl<'a> Image<'a> {
+    pub fn new() -> Rc<Self> {
+        let t = Rc::<Self>::default();
+        t
+    }
+}

@@ -10,11 +10,14 @@
 
 #![recursion_limit = "512"]
 
+#[cfg(target_arch="wasm32")]
+extern crate piet_cargoweb as piet_common;
+
 
 #[macro_use]
 pub mod properties;
 pub use crate::properties::*;
-pub mod anchors;
+// pub mod anchors;
 #[macro_use]
 pub mod rslm;
 pub mod items;
