@@ -566,6 +566,59 @@ impl<'a> Container<'a> {
     }
 }
 
+
+
+/// Can contains other Items, resize the items to the size of the Caintainer
+#[derive(Default)]
+pub struct FreeLayout<'a> {
+    pub geometry: Geometry<'a>,
+    pub layout_info: LayoutInfo<'a>,
+    children: RefCell<Vec<Rc<dyn Item<'a> + 'a>>>,
+}
+impl<'a> Item<'a> for FreeLayout<'a> {
+    fn geometry(&self) -> &Geometry<'a> {
+        &self.geometry
+    }
+    fn layout_info(&self) -> &LayoutInfo<'a> {
+        &self.layout_info
+    }
+
+    fn draw(&self, rc: &mut Piet) -> DrawResult {
+        let g = self.geometry().to_rect();
+        rc.with_save(|rc| {
+            rc.transform(piet_common::kurbo::Affine::translate(g.origin().to_vec2()));
+            for child in self.children.borrow().iter() {
+                child.draw(rc)?
+            }
+            Ok(())
+        })
+    }
+
+
+    fn mouse_event(&self, event: MouseEvent) -> bool {
+        for i in self.children.borrow().iter() {
+            let g = i.geometry().to_rect();
+            if g.contains(event.position()) {
+                return i.mouse_event(event.translated(g.origin()));
+            }
+        }
+        return false;
+    }
+
+}
+
+impl<'a> ItemContainer<'a> for Rc<FreeLayout<'a>> {
+    fn add_child(&self, child: Rc<dyn Item<'a> + 'a>) {
+        self.children.borrow_mut().push(child);
+    }
+}
+
+impl<'a> FreeLayout<'a> {
+    pub fn new() -> Rc<Self> {
+        Default::default()
+    }
+}
+
 #[derive(Clone)]
 pub struct QColor(piet_common::Color);
 impl Default for QColor {
