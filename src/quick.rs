@@ -5,6 +5,7 @@ use std::rc::Rc;
 /// Use as a factory for RSMLItem
 pub trait ItemFactory {
     fn create() -> Rc<dyn Item<'static>>;
+    fn tick() {}
 }
 
 #[cfg(not(target_arch="wasm32"))]
@@ -20,16 +21,28 @@ pub fn show_window<T: ItemFactory + 'static>() {
 
     let item = T::create();
 
-    let event_loop = EventLoop::new();
+
+    enum UserEvent { ReadyCB, Timer };
+
+    let event_loop = EventLoop::<UserEvent>::with_user_event();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
 
 
     let event_loop_proxy = event_loop.create_proxy();
     let sw_context = swsurface::ContextBuilder::new(&event_loop)
         .with_ready_cb(move |_| {
-            let _ = event_loop_proxy.send_event(());
+            let _ = event_loop_proxy.send_event(UserEvent::ReadyCB);
         })
         .build();
+
+    let event_loop_proxy2 = event_loop.create_proxy();
+    ::std::thread::spawn(move || {
+        loop {
+            ::std::thread::sleep(std::time::Duration::from_millis(16));
+            let _ = event_loop_proxy2.send_event(UserEvent::Timer);
+        }
+    });
+
 
     let sw_window = SwWindow::new(window, &sw_context, &Default::default());
 
@@ -105,6 +118,11 @@ pub fn show_window<T: ItemFactory + 'static>() {
             // ControlFlow::Wait pauses the event loop if no events are available to process.
             // This is ideal for non-game applications that only update in response to user
             // input, and uses significantly less power/CPU time than ControlFlow::Poll.
+            Event::UserEvent(UserEvent::Timer) => {
+                T::tick();
+                // FIXME: listen on property changes
+                sw_window.window().request_redraw();
+            }
             _ => *control_flow = ControlFlow::Wait,
         }
     });

@@ -20,11 +20,23 @@ mod wheel {
 use piet_common::{Piet, RenderContext};
 use propertybindings::items::{Geometry, LayoutInfo, Item, DrawResult, MouseEvent};
 use propertybindings::properties::Property;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use super::ItemContainer;
 
+type Timestamp = u64;
 
+thread_local! {
+    pub static TIMESTAMP: Property<'static, Timestamp> = Default::default();
+}
+
+#[derive(Default, Clone)]
+pub struct AnimationInfo {
+    pub from: f64,
+    pub target: f64,
+    pub start_time: Timestamp,
+    pub stop_time: Timestamp,
+}
 
 /// Can contains other Items, resize the items to the size of the Caintainer
 #[derive(Default)]
@@ -33,6 +45,7 @@ pub struct WheelLayout<'a> {
     pub layout_info: LayoutInfo<'a>,
     children: RefCell<Vec<Rc<dyn Item<'a> + 'a>>>,
     pub angle: Property<'a, f64>,
+    pub angle_animation: Property<'a, AnimationInfo>,
     pub item_size: Property<'a, f64>,
 }
 impl<'a> Item<'a> for WheelLayout<'a> {
@@ -97,6 +110,12 @@ impl<'a> WheelLayout<'a> {
             })));
         }
     }
+
+    pub fn set_angle_animated(&self, a: f64) {
+        let current = TIMESTAMP.with(|x| x.get());
+        let a = AnimationInfo{ from: self.angle.get(), target: a, start_time: current, stop_time: current + 500 };
+        self.angle_animation.set(a);
+    }
 }
 
 }
@@ -144,17 +163,32 @@ impl propertybindings::quick::ItemFactory for Wear {
                 WheelLayout {
                     @id: wheel,
                     item_size: 100.,
-                    Button { text: "☔".into(), on_clicked: wheel.angle.set(1.*a), }
-                    Button { text: "♖".into(), on_clicked: wheel.angle.set(2.*a), }
-                    Button { text: "☃".into(), on_clicked: wheel.angle.set(3.*a), }
-                    Button { text: "☎".into(), on_clicked: wheel.angle.set(4.*a), }
-                    Button { text: "⚙".into(), on_clicked: wheel.angle.set(5.*a), }
-                    Button { text: "☀".into(), on_clicked: wheel.angle.set(6.*a), }
-                    Button { text: "♿".into(), on_clicked: wheel.angle.set(7.*a), }
-                    Button { text: "☪".into(), on_clicked: wheel.angle.set(8.*a), }
+                    angle: {
+                        let anim = wheel.angle_animation.get();
+                        let current = wheel::TIMESTAMP.with(|x|x.get());
+                        if current >= anim.stop_time {
+                            anim.target
+                        } else {
+                            let f = (current - anim.start_time) as f64 / (anim.stop_time - anim.start_time) as f64;
+                            anim.from * (1. - f) + anim.target * f
+                        }
+                    },
+                    Button { text: "☔".into(), on_clicked: wheel.set_angle_animated(1.*a), }
+                    Button { text: "♖".into(), on_clicked: wheel.set_angle_animated(2.*a), }
+                    Button { text: "☃".into(), on_clicked: wheel.set_angle_animated(3.*a), }
+                    Button { text: "☎".into(), on_clicked: wheel.set_angle_animated(4.*a), }
+                    Button { text: "⚙".into(), on_clicked: wheel.set_angle_animated(5.*a), }
+                    Button { text: "☀".into(), on_clicked: wheel.set_angle_animated(6.*a), }
+                    Button { text: "♿".into(), on_clicked: wheel.set_angle_animated(7.*a), }
+                    Button { text: "☪".into(), on_clicked: wheel.set_angle_animated(8.*a), }
+
                 }
             }
         )
+    }
+
+    fn tick() {
+        wheel::TIMESTAMP.with(|x| x.set(x.get() + 16));
     }
 }
 
