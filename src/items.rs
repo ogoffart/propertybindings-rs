@@ -747,6 +747,7 @@ pub struct Image<'a> {
     pub geometry: Geometry<'a>,
     pub layout_info: LayoutInfo<'a>,
     pub image: Property<'a, Option<image::DynamicImage>>,
+    image_data: std::cell::RefCell<Option<piet_common::Image>>,
 }
 
 impl<'a> Item<'a> for Image<'a> {
@@ -762,14 +763,19 @@ impl<'a> Item<'a> for Image<'a> {
         if g.area() <= 0. {
             return Ok(());
         }
-        if let Some(im) = self.image.get() {
-            let im = im.to_rgba();
-            let im = rc.make_image(
-                im.width() as _,
-                im.height() as _,
-                &im.into_raw(),
-                piet_common::ImageFormat::RgbaSeparate,
-            )?;
+        if self.image_data.borrow().is_none() {
+            if let Some(im) = self.image.get() {
+                let im = im.to_rgba();
+                let im = rc.make_image(
+                    im.width() as _,
+                    im.height() as _,
+                    &im.into_raw(),
+                    piet_common::ImageFormat::RgbaSeparate,
+                )?;
+                *self.image_data.borrow_mut() = Some(im);
+            }
+        }
+        if let Some(im) = &*self.image_data.borrow() {
             rc.draw_image(&im, g, piet_common::InterpolationMode::NearestNeighbor);
         }
         Ok(())

@@ -154,35 +154,7 @@ pub fn show_window<T: ItemFactory + 'static>() {
 
 #[cfg(target_arch="wasm32")]
 pub fn show_window<T: ItemFactory + 'static>() {
-   /* use winit::{
-        event::{Event, WindowEvent},
-        event_loop::{ControlFlow, EventLoop},
-        platform::web::WindowExtStdweb,
-        window::WindowBuilder,
-    };
-    use stdweb::{traits::*, web::document};
 
-    let event_loop = EventLoop::new();
-
-    let window = WindowBuilder::new()
-        .with_title("A fantastic window!")
-        .build(&event_loop)
-        .unwrap();
-
-    document().body().unwrap().append_child(&window.canvas());
-
-    event_loop.run(move |event, _, control_flow| {
-        stdweb::console!(log, format!("{:?}", event));
-
-        match event {
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                window_id,
-            } if window_id == window.id() => *control_flow = ControlFlow::Exit,
-            _ => *control_flow = ControlFlow::Wait,
-        }
-    });
-*/
 
     use winit::{
         event::{Event, WindowEvent},
@@ -228,7 +200,9 @@ pub fn show_window<T: ItemFactory + 'static>() {
                 // Application update code.
 
                 // Queue a RedrawRequested event.
-                //sw_window.window().request_redraw();
+                T::tick();
+                window.request_redraw();
+                *control_flow = ControlFlow::WaitUntil(instant::Instant::now() + instant::Duration::from_millis(16));
             },
             Event::WindowEvent {
                 event: WindowEvent::RedrawRequested,
@@ -267,13 +241,12 @@ pub fn show_window<T: ItemFactory + 'static>() {
                 // FIXME: listen on property changes
                 window.request_redraw();
             }
-            // ControlFlow::Poll continuously runs the event loop, even if the OS hasn't
-            // dispatched any events. This is ideal for games and similar applications.
-            //_ => *control_flow = ControlFlow::Poll,
-            // ControlFlow::Wait pauses the event loop if no events are available to process.
-            // This is ideal for non-game applications that only update in response to user
-            // input, and uses significantly less power/CPU time than ControlFlow::Poll.
-            _ => *control_flow = ControlFlow::Wait,
+            Event::UserEvent(_) => {
+                T::tick();
+                // FIXME: listen on property changes
+                window.request_redraw();
+            }
+            _ => {},
         }
     });
 

@@ -8,9 +8,6 @@ extern crate piet_cargoweb as piet_common;
 
 use std::rc::Rc;
 
-use propertybindings::properties::Property;
-
-
 pub trait ItemContainer<'a> {
     fn add_child(&self, child: Rc<dyn propertybindings::items::Item<'a> + 'a>);
 }
@@ -20,7 +17,7 @@ mod wheel {
 use piet_common::{Piet, RenderContext};
 use propertybindings::items::{Geometry, LayoutInfo, Item, DrawResult, MouseEvent};
 use propertybindings::properties::Property;
-use std::cell::{Cell, RefCell};
+use std::cell::{RefCell};
 use std::rc::Rc;
 use super::ItemContainer;
 
