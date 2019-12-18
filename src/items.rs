@@ -110,6 +110,8 @@ pub trait Item<'a> {
     fn mouse_event(&self, _event: MouseEvent) -> bool {
         false
     }
+
+    fn tick(&self) {}
 }
 
 pub trait ItemContainer<'a> {
@@ -131,6 +133,9 @@ where
     }
     fn mouse_event(&self, event: MouseEvent) -> bool {
         ::std::ops::Deref::deref(self).mouse_event(event)
+    }
+    fn tick(&self) {
+        ::std::ops::Deref::deref(self).tick()
     }
 }
 
@@ -256,6 +261,11 @@ macro_rules! declare_box_layout {
                     }
                 }
                 return false;
+            }
+            fn tick(&self) {
+                for i in self.children.borrow().iter() {
+                    i.tick()
+                }
             }
         }
 
@@ -536,6 +546,11 @@ impl<'a> Item<'a> for Container<'a> {
         }
         ret
     }
+    fn tick(&self) {
+        for i in self.children.borrow().iter() {
+            i.tick()
+        }
+    }
 }
 
 impl<'a> ItemContainer<'a> for Rc<Container<'a>> {
@@ -600,6 +615,11 @@ impl<'a> Item<'a> for FreeLayout<'a> {
             }
         }
         return false;
+    }
+    fn tick(&self) {
+        for i in self.children.borrow().iter() {
+            i.tick()
+        }
     }
 }
 

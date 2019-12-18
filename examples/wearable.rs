@@ -23,10 +23,6 @@ mod wheel {
 
     type Timestamp = u64;
 
-    thread_local! {
-        pub static TIMESTAMP: Property<'static, Timestamp> = Default::default();
-    }
-
     #[derive(Default, Clone)]
     pub struct AnimationInfo {
         pub from: f64,
@@ -44,6 +40,7 @@ mod wheel {
         pub angle: Property<'a, f64>,
         pub angle_animation: Property<'a, AnimationInfo>,
         pub item_size: Property<'a, f64>,
+        pub current_timestamp: Property<'static, Timestamp>,
     }
     impl<'a> Item<'a> for WheelLayout<'a> {
         fn geometry(&self) -> &Geometry<'a> {
@@ -72,6 +69,11 @@ mod wheel {
                 }
             }
             return false;
+        }
+
+        fn tick(&self) {
+            self.current_timestamp
+                .set(self.current_timestamp.get() + 16);
         }
     }
 
@@ -121,7 +123,7 @@ mod wheel {
         }
 
         pub fn set_angle_animated(&self, a: f64) {
-            let current = TIMESTAMP.with(|x| x.get());
+            let current = self.current_timestamp.get();
             let a = AnimationInfo {
                 from: self.angle.get(),
                 target: a,
@@ -133,76 +135,67 @@ mod wheel {
     }
 }
 
-#[derive(Default)]
-struct Wear {}
+fn create() -> Rc<dyn propertybindings::items::Item<'static>> {
+    use propertybindings::items::*;
+    use wheel::WheelLayout;
 
-impl propertybindings::quick::ItemFactory for Wear {
-    fn create() -> Rc<dyn propertybindings::items::Item<'static>> {
-        use propertybindings::items::*;
-        use wheel::WheelLayout;
+    //         let button_img = image::load_from_memory(include_bytes!("images/button.png")).ok();
 
-        //         let button_img = image::load_from_memory(include_bytes!("images/button.png")).ok();
-
-        rsml! { struct Button : Container {
-                    @signal on_clicked,
-        //             active: i32,
-        //             index: i32,
-                    text: String;
-                    Image {
-                        image: image::load_from_memory(include_bytes!("images/button.png")).ok(),
-                    }
-                    Text {
-                        text: Button.text.get(),
-                        vertical_alignment: alignment::VCENTER,
-                        horizontal_alignment: alignment::HCENTER,
-                    }
-                    MouseArea {
-                        @id: mouse,
-                        on_clicked: Button.on_clicked.emit()
-                    }
-                }}
-
-        //let model2 = model.clone();
-        let a = -(2. * std::f64::consts::PI) / (8 as f64);
-
-        rsml!(
-            Container {
+    rsml! { struct Button : Container {
+                @signal on_clicked,
+    //             active: i32,
+    //             index: i32,
+                text: String;
                 Image {
-                    image: image::load_from_memory(include_bytes!("images/clouds.jpg")).ok(),
+                    image: image::load_from_memory(include_bytes!("images/button.png")).ok(),
                 }
-                WheelLayout {
-                    @id: wheel,
-                    item_size: 100.,
-                    angle: {
-                        let anim = wheel.angle_animation.get();
-                        let current = wheel::TIMESTAMP.with(|x|x.get());
-                        if current >= anim.stop_time {
-                            anim.target
-                        } else {
-                            let f = (current - anim.start_time) as f64 / (anim.stop_time - anim.start_time) as f64;
-                            anim.from * (1. - f) + anim.target * f
-                        }
-                    },
-                    Button { text: "☔".into(), on_clicked: wheel.set_angle_animated(1.*a), }
-                    Button { text: "♖".into(), on_clicked: wheel.set_angle_animated(2.*a), }
-                    Button { text: "☃".into(), on_clicked: wheel.set_angle_animated(3.*a), }
-                    Button { text: "☎".into(), on_clicked: wheel.set_angle_animated(4.*a), }
-                    Button { text: "⚙".into(), on_clicked: wheel.set_angle_animated(5.*a), }
-                    Button { text: "☀".into(), on_clicked: wheel.set_angle_animated(6.*a), }
-                    Button { text: "♿".into(), on_clicked: wheel.set_angle_animated(7.*a), }
-                    Button { text: "☪".into(), on_clicked: wheel.set_angle_animated(8.*a), }
+                Text {
+                    text: Button.text.get(),
+                    vertical_alignment: alignment::VCENTER,
+                    horizontal_alignment: alignment::HCENTER,
+                }
+                MouseArea {
+                    @id: mouse,
+                    on_clicked: Button.on_clicked.emit()
+                }
+            }}
 
-                }
+    //let model2 = model.clone();
+    let a = -(2. * std::f64::consts::PI) / (8 as f64);
+
+    rsml!(
+        Container {
+            Image {
+                image: image::load_from_memory(include_bytes!("images/clouds.jpg")).ok(),
             }
-        )
-    }
+            WheelLayout {
+                @id: wheel,
+                item_size: 100.,
+                angle: {
+                    let anim = wheel.angle_animation.get();
+                    let current = wheel.current_timestamp.get();
+                    if current >= anim.stop_time {
+                        anim.target
+                    } else {
+                        let f = (current - anim.start_time) as f64 / (anim.stop_time - anim.start_time) as f64;
+                        anim.from * (1. - f) + anim.target * f
+                    }
+                },
+                Button { text: "☔".into(), on_clicked: wheel.set_angle_animated(1.*a), }
+                Button { text: "♖".into(), on_clicked: wheel.set_angle_animated(2.*a), }
+                Button { text: "☃".into(), on_clicked: wheel.set_angle_animated(3.*a), }
+                Button { text: "☎".into(), on_clicked: wheel.set_angle_animated(4.*a), }
+                Button { text: "⚙".into(), on_clicked: wheel.set_angle_animated(5.*a), }
+                Button { text: "☀".into(), on_clicked: wheel.set_angle_animated(6.*a), }
+                Button { text: "♿".into(), on_clicked: wheel.set_angle_animated(7.*a), }
+                Button { text: "☪".into(), on_clicked: wheel.set_angle_animated(8.*a), }
 
-    fn tick() {
-        wheel::TIMESTAMP.with(|x| x.set(x.get() + 16));
-    }
+            }
+        }
+    )
 }
 
 fn main() {
     let app = propertybindings::quick::Application::default();
-    app.show_window::<Wear>();
+    app.show_window(create());
 }

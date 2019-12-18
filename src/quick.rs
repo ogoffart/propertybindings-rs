@@ -23,18 +23,12 @@ impl Default for Application {
     }
 }
 
-/// Use as a factory for RSMLItem
-pub trait ItemFactory {
-    fn create() -> Rc<dyn Item<'static>>;
-    fn tick() {}
-}
-
 struct ApplicationState {
     cursor_pos: piet_common::kurbo::Point,
 }
 
 // process the event, return true if one should draw
-fn process_event<T: ItemFactory>(
+fn process_event(
     app_state: &mut ApplicationState,
     item: &dyn Item,
     window: &Window,
@@ -47,7 +41,7 @@ fn process_event<T: ItemFactory>(
             // Application update code.
 
             // Queue a RedrawRequested event.
-            T::tick();
+            item.tick();
             window.request_redraw();
             *control_flow = ControlFlow::WaitUntil(
                 instant::Instant::now() + instant::Duration::from_millis(16),
@@ -124,12 +118,10 @@ impl Application {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn show_window<T: ItemFactory + 'static>(self) {
+    pub fn show_window(self, item: Rc<dyn Item<'static>>) {
         use swsurface::{Format, SwWindow};
 
         use winit::window::WindowBuilder;
-
-        let item = T::create();
 
         let event_loop = self.event_loop;
         let window = WindowBuilder::new().build(&event_loop).unwrap();
@@ -172,9 +164,7 @@ impl Application {
                     item.geometry().height.set(height.into());
                     true
                 }
-                _ => {
-                    process_event::<T>(&mut state, &*item, sw_window.window(), event, control_flow)
-                }
+                _ => process_event(&mut state, &*item, sw_window.window(), event, control_flow),
             };
             if repaint {
                 redraw(&sw_window, item.clone());
@@ -216,11 +206,9 @@ impl Application {
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn show_window<T: ItemFactory + 'static>(self) {
+    pub fn show_window(self, item: Rc<dyn Item<'static>>) {
         use stdweb::{traits::*, web::document};
         use winit::{platform::web::WindowExtStdweb, window::WindowBuilder};
-
-        let item = T::create();
 
         let event_loop = self.event_loop;
         let window = WindowBuilder::new().build(&event_loop).unwrap();
@@ -250,7 +238,7 @@ impl Application {
                     item.geometry().height.set(height.into());
                     true
                 }
-                _ => process_event::<T>(&mut state, &*item, &window, event, control_flow),
+                _ => process_event(&mut state, &*item, &window, event, control_flow),
             };
             if repaint {
                 redraw(&window, item.clone());
