@@ -10,7 +10,7 @@ edition = "2018"
 
 [dependencies]
 image= { version = "0.22.3", default-features=false, features = ["jpeg", "png_codec"] }
-
+instant = "0.1"
 winit = { version = "0.20.0-alpha5" }
 
 [features]
@@ -30,7 +30,6 @@ stdweb = "0.4.19"
 # web-sys = { version = "0.3.10", features = ["Window", "CanvasGradient", "CanvasRenderingContext2d", "CanvasWindingRule", "Document", "Element", "HtmlCanvasElement", "ImageBitmap", "ImageData", "TextMetrics"] }
 piet-cargoweb = {path="../piet-cargoweb", package="piet-cargoweb" }
 # winit_web = { version="0.20.0-alpha4", features=["stdweb"], package="winit" }
-instant = "0.1"
 
 
 [dev-dependencies]

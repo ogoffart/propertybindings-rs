@@ -2,8 +2,11 @@ use super::items::{Item, MouseEvent};
 use std::rc::Rc;
 
 use winit::event_loop::EventLoop;
+use winit::event_loop::ControlFlow;
+use winit::window::Window;
+use winit::event::{Event, WindowEvent};
 
-enum UserEvent { ReadyCB, Timer, User(Box<dyn FnOnce() + Send>) }
+enum UserEvent { ReadyCB, User(Box<dyn FnOnce() + Send>) }
 
 
 pub struct Application {
@@ -24,6 +27,74 @@ pub trait ItemFactory {
     fn tick() {}
 }
 
+struct ApplicationState {
+    cursor_pos: piet_common::kurbo::Point
+}
+
+
+// process the event, return true if one should draw
+fn process_event<T: ItemFactory>(app_state : &mut ApplicationState, item : &dyn Item, window: &Window, event: Event<UserEvent>,
+        control_flow: &mut ControlFlow) -> bool {
+    use winit::event::*;
+    match event {
+        Event::EventsCleared => {
+            // Application update code.
+
+            // Queue a RedrawRequested event.
+            T::tick();
+            window.request_redraw();
+            *control_flow = ControlFlow::WaitUntil(instant::Instant::now() + instant::Duration::from_millis(16));
+        },
+        Event::WindowEvent {
+            event: WindowEvent::RedrawRequested,
+            ..
+        } => {
+            // Redraw the application.
+            //
+            // It's preferrable to render in this event rather than in EventsCleared, since
+            // rendering in here allows the program to gracefully handle redraws requested
+            // by the OS.
+            return true;
+        },
+        Event::WindowEvent {
+            event: WindowEvent::CloseRequested,
+            ..
+        } => {
+            //The close button was pressed; stopping;
+            *control_flow = ControlFlow::Exit
+        },
+        Event::WindowEvent {
+            event: WindowEvent::CursorMoved{ position, .. },
+            ..
+        } => {
+            let f = window.hidpi_factor();
+            app_state.cursor_pos = piet_common::kurbo::Point::new(position.x*f, position.y*f);
+            item.mouse_event(MouseEvent::Move(app_state.cursor_pos));
+        },
+        Event::WindowEvent {
+            event: WindowEvent::MouseInput{ state, .. },
+            ..
+        } => {
+            item.mouse_event(match state {
+                winit::event::ElementState::Pressed => MouseEvent::Press(app_state.cursor_pos),
+                winit::event::ElementState::Released => MouseEvent::Release(app_state.cursor_pos),
+            });
+            // FIXME: listen on property changes
+            window.request_redraw();
+        }
+        Event::UserEvent(UserEvent::User(callback)) => {
+            callback();
+        }
+        Event::UserEvent(UserEvent::ReadyCB) => {
+            return true;
+        }
+        _ => {},
+    };
+
+    false
+}
+
+
 impl Application {
 
     #[cfg(not(target_arch="wasm32"))]
@@ -33,11 +104,10 @@ impl Application {
     }
 
     #[cfg(target_arch="wasm32")]
-    pub fn get_callback<F : FnOnce() + Send + 'static>(&self) -> impl Fn(F)  {
+    pub fn get_callback<F : FnOnce() + Send + 'static>(&self) -> impl Fn(F) {
         let proxy = self.event_loop.create_proxy();
         move |callback| { proxy.send_event(UserEvent::User(Box::new(callback))).unwrap_or_else(|_| panic!("Could not send the event") );  }
     }
-
 
 
 
@@ -47,8 +117,6 @@ impl Application {
         use swsurface::{Format, SwWindow};
 
         use winit::{
-            event::{Event, WindowEvent},
-            event_loop::{ControlFlow},
             window::WindowBuilder,
         };
 
@@ -66,15 +134,6 @@ impl Application {
             })
             .build();
 
-        let event_loop_proxy2 = event_loop.create_proxy();
-        ::std::thread::spawn(move || {
-            loop {
-                ::std::thread::sleep(std::time::Duration::from_millis(16));
-                let _ = event_loop_proxy2.send_event(UserEvent::Timer);
-            }
-        });
-
-
         let sw_window = SwWindow::new(window, &sw_context, &Default::default());
 
         let format = [Format::Xrgb8888, Format::Argb8888]
@@ -86,72 +145,24 @@ impl Application {
         sw_window.update_surface_to_fit(format);
         sw_window.window().request_redraw();
 
-        let mut cursor_pos = piet_common::kurbo::Point::ORIGIN;
+        let mut state = ApplicationState { cursor_pos : piet_common::kurbo::Point::ORIGIN };
 
         event_loop.run(move |event, _, control_flow| {
-            match event {
-
+            let repaint = match event {
                 Event::WindowEvent { event: WindowEvent::Resized(_), .. } |
                 Event::WindowEvent { event: WindowEvent::HiDpiFactorChanged(_), ..} => {
                     sw_window.update_surface_to_fit(format);
                     let [width, height] = sw_window.image_info().extent;
                     item.geometry().width.set(width.into());
                     item.geometry().height.set(height.into());
-                    redraw(&sw_window, item.clone());
+                    true
                 }
-
-                Event::EventsCleared => {
-                    // Application update code.
-
-                    // Queue a RedrawRequested event.
-                    //sw_window.window().request_redraw();
-                },
-                Event::WindowEvent {
-                    event: WindowEvent::RedrawRequested,
-                    ..
-                } => {
-                    // Redraw the application.
-                    //
-                    // It's preferrable to render in this event rather than in EventsCleared, since
-                    // rendering in here allows the program to gracefully handle redraws requested
-                    // by the OS.
-                    redraw(&sw_window, item.clone());
-                },
-                Event::WindowEvent {
-                    event: WindowEvent::CloseRequested,
-                    ..
-                } => {
-                    println!("The close button was pressed; stopping");
-                    *control_flow = ControlFlow::Exit
-                },
-                Event::WindowEvent {
-                    event: WindowEvent::CursorMoved{ position, .. },
-                    ..
-                } => {
-                    let f = sw_window.window().hidpi_factor();
-                    cursor_pos = piet_common::kurbo::Point::new(position.x*f, position.y*f);
-                    item.mouse_event(MouseEvent::Move(cursor_pos));
-                },
-                Event::WindowEvent {
-                    event: WindowEvent::MouseInput{ state, .. },
-                    ..
-                } => {
-                    item.mouse_event(match state {
-                        winit::event::ElementState::Pressed => MouseEvent::Press(cursor_pos),
-                        winit::event::ElementState::Released => MouseEvent::Release(cursor_pos),
-                    });
-                    // FIXME: listen on property changes
-                    sw_window.window().request_redraw();
+                _ => {
+                    process_event::<T>(&mut state, &*item, sw_window.window(), event, control_flow)
                 }
-                Event::UserEvent(UserEvent::Timer) => {
-                    T::tick();
-                    // FIXME: listen on property changes
-                    sw_window.window().request_redraw();
-                }
-                Event::UserEvent(UserEvent::User(callback)) => {
-                    callback();
-                }
-                _ => *control_flow = ControlFlow::Wait,
+            };
+            if repaint {
+                redraw(&sw_window, item.clone());
             }
         });
 
@@ -185,9 +196,7 @@ impl Application {
 
 
         use winit::{
-            event::{Event, WindowEvent},
-            event_loop::{ControlFlow, EventLoop},
-            window::{WindowBuilder, Window},
+            window::{WindowBuilder},
             platform::web::WindowExtStdweb,
         };
         use stdweb::{traits::*, web::document};
@@ -197,90 +206,32 @@ impl Application {
         let event_loop = self.event_loop;
         let window = WindowBuilder::new().build(&event_loop).unwrap();
         document().body().unwrap().append_child(&window.canvas());
-        let mut cursor_pos = piet_common::kurbo::Point::ORIGIN;
 
         //window.set_fullscreen(Some(winit::window::Fullscreen::Borderless))
         let winit::dpi::LogicalSize{width, height} = window.inner_size();
         item.geometry().width.set(width.into());
         item.geometry().height.set(height.into());
 
-
-
+        let mut state = ApplicationState { cursor_pos : piet_common::kurbo::Point::ORIGIN };
 
         event_loop.run(move |event, _, control_flow| {
-
-        /* let messages = format!("{:#?} ", event);
-            js! {
-                document.write("<h5>" + @{messages} + "</h5>");
-            };*/
-    //         stdweb::console!(log, format!("{:?}", event));
-
-            match event {
+            let repaint = match event {
                 Event::WindowEvent { event: WindowEvent::Resized(_), .. } |
                 Event::WindowEvent { event: WindowEvent::HiDpiFactorChanged(_), ..} => {
                     let winit::dpi::LogicalSize{width, height} = window.inner_size();
                     item.geometry().width.set(width.into());
                     item.geometry().height.set(height.into());
-                    redraw(&window, item.clone());
+                    true
                 }
-
-                Event::EventsCleared => {
-                    // Application update code.
-
-                    // Queue a RedrawRequested event.
-                    T::tick();
-                    window.request_redraw();
-                    *control_flow = ControlFlow::WaitUntil(instant::Instant::now() + instant::Duration::from_millis(16));
-                },
-                Event::WindowEvent {
-                    event: WindowEvent::RedrawRequested,
-                    ..
-                } => {
-                    // Redraw the application.
-                    //
-                    // It's preferrable to render in this event rather than in EventsCleared, since
-                    // rendering in here allows the program to gracefully handle redraws requested
-                    // by the OS.
-                    redraw(&window, item.clone());
-                },
-                Event::WindowEvent {
-                    event: WindowEvent::CloseRequested,
-                    ..
-                } => {
-                    println!("The close button was pressed; stopping");
-                    *control_flow = ControlFlow::Exit
-                },
-                Event::WindowEvent {
-                    event: WindowEvent::CursorMoved{ position, .. },
-                    ..
-                } => {
-                    let f = window.hidpi_factor();
-                    cursor_pos = piet_common::kurbo::Point::new(position.x*f, position.y*f);
-                    item.mouse_event(MouseEvent::Move(cursor_pos));
-                },
-                Event::WindowEvent {
-                    event: WindowEvent::MouseInput{ state, .. },
-                    ..
-                } => {
-                    item.mouse_event(match state {
-                        winit::event::ElementState::Pressed => MouseEvent::Press(cursor_pos),
-                        winit::event::ElementState::Released => MouseEvent::Release(cursor_pos),
-                    });
-                    // FIXME: listen on property changes
-                    window.request_redraw();
+                _ => {
+                    process_event::<T>(&mut state, &*item, &window, event, control_flow)
                 }
-                Event::UserEvent(UserEvent::User(callback)) => {
-                    callback();
-                }
-                Event::UserEvent(UserEvent::Timer) => {
-                    T::tick();
-                    // FIXME: listen on property changes
-                    window.request_redraw();
-                }
-
-                _ => {},
+            };
+            if repaint {
+                redraw(&window, item.clone());
             }
         });
+
 
         fn redraw(window: &Window, item: Rc<dyn Item>)  {
             use stdweb::web::CanvasRenderingContext2d;
@@ -293,7 +244,6 @@ impl Application {
             if let Err(r) = item.draw(&mut ctx) {
                 stdweb::console!(log, format!("Error drawing {:?}", r));
             }
-
         }
     }
 
