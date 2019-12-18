@@ -58,5 +58,5 @@ impl propertybindings::quick::ItemFactory for PlusMinus {
 }
 
 fn main() {
-    propertybindings::quick::show_window::<PlusMinus>();
+    propertybindings::quick::Application::default().show_window::<PlusMinus>();
 }

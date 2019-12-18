@@ -190,5 +190,6 @@ impl propertybindings::quick::ItemFactory for Wear {
 }
 
 fn main() {
-    propertybindings::quick::show_window::<Wear>();
+    let app = propertybindings::quick::Application::default();
+    app.show_window::<Wear>();
 }
