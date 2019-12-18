@@ -84,7 +84,9 @@ where
 trait NotificationReciever {
     fn notify(self: Pin<&Self>, from: Pin<&dyn PropertyBase>);
     fn add_rev_dependency(self: Pin<&Self>, link: NonNull<DependencyNode>);
-    fn needs_drop(&self) -> bool { false }
+    fn needs_drop(&self) -> bool {
+        false
+    }
 }
 
 trait PropertyBase {
@@ -243,7 +245,10 @@ pub struct Property<'prop, T> {
     // if value & 1 { BindingPtr<T> } else { double_link::Head<NotifyList> }
     // if value & 0b11, it needs to be dropped
     internal: Cell<usize>,
-    phantom: PhantomData<(core::marker::PhantomPinned, RefCell<Box<dyn Binding<T> + 'prop>>)>,
+    phantom: PhantomData<(
+        core::marker::PhantomPinned,
+        RefCell<Box<dyn Binding<T> + 'prop>>,
+    )>,
     value: core::cell::UnsafeCell<T>,
 }
 
@@ -267,7 +272,7 @@ impl<'prop, T> Property<'prop, T> {
             })
     }
 
-    fn remove_binding(self : Pin<&Self>) {
+    fn remove_binding(self: Pin<&Self>) {
         let v = self.internal.get();
         if let Some(b) = self.binding() {
             self.internal.set(0);
@@ -279,7 +284,6 @@ impl<'prop, T> Property<'prop, T> {
             }
         }
     }
-
 }
 
 impl<'prop, T> Drop for Property<'prop, T> {
@@ -287,7 +291,7 @@ impl<'prop, T> Drop for Property<'prop, T> {
         unsafe {
             Pin::new_unchecked(&*self).remove_binding();
             let head_ptr = &self.internal as *const _;
-            let head : double_link::Head<NotifyList> =  core::ptr::read(head_ptr as *const _);
+            let head: double_link::Head<NotifyList> = core::ptr::read(head_ptr as *const _);
             core::mem::drop(head);
         }
     }
@@ -334,7 +338,7 @@ impl<'prop, T> Property<'prop, T> {
     }
 
     pub fn set_binding_owned<'a, B: Binding<T> + 'a>(self: Pin<&Self>, b: B) {
-        let b : Box<BindingStorage<dyn Binding<T> + 'a>> = Box::new(BindingStorage::new(b));
+        let b: Box<BindingStorage<dyn Binding<T> + 'a>> = Box::new(BindingStorage::new(b));
         unsafe {
             (*self.notify_dep().as_ptr()).swap(&mut *b.notify_dep.as_ptr());
             self.remove_binding();

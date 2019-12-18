@@ -10,9 +10,8 @@
 
 #![recursion_limit = "512"]
 
-#[cfg(target_arch="wasm32")]
+#[cfg(target_arch = "wasm32")]
 extern crate piet_cargoweb as piet_common;
-
 
 #[macro_use]
 pub mod properties;
@@ -29,14 +28,17 @@ mod pin_weak {
     use core::pin::Pin;
     use std::rc::{Rc, Weak};
 
-
     /// Like a std::rc::Weak, but can be constructed from a Pin<Rc>
     pub struct PinWeak<T>(Weak<T>);
     impl<T> Default for PinWeak<T> {
-        fn default() -> Self { PinWeak(Default::default()) }
+        fn default() -> Self {
+            PinWeak(Default::default())
+        }
     }
     impl<T> Clone for PinWeak<T> {
-        fn clone(&self) -> Self { PinWeak(self.0.clone()) }
+        fn clone(&self) -> Self {
+            PinWeak(self.0.clone())
+        }
     }
     impl<T> PinWeak<T> {
         //pub fn new() -> Self { Default::default() }
@@ -51,9 +53,8 @@ mod pin_weak {
         pub fn downgrade_from(p: &Pin<Rc<T>>) -> Self {
             Self(Rc::downgrade(unsafe {
                 // FIXME: use Pin::into_inner_unchecked
-                std::mem::transmute::<&Pin<Rc<T>>, &Rc<T>, >(&p)
+                std::mem::transmute::<&Pin<Rc<T>>, &Rc<T>>(&p)
             }))
         }
     }
-
 }

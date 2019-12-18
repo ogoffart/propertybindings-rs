@@ -104,7 +104,9 @@ impl MouseEvent {
 pub trait Item<'a> {
     fn geometry(&self) -> &Geometry<'a>;
     fn layout_info(&self) -> &LayoutInfo<'a>;
-    fn draw(&self, _rc: &mut Piet) -> DrawResult { Ok(()) }
+    fn draw(&self, _rc: &mut Piet) -> DrawResult {
+        Ok(())
+    }
     fn mouse_event(&self, _event: MouseEvent) -> bool {
         false
     }
@@ -214,7 +216,6 @@ mod layout_engine {
                 .collect()
         }
     }
-
 }
 
 macro_rules! declare_box_layout {
@@ -246,7 +247,6 @@ macro_rules! declare_box_layout {
                     Ok(())
                 })
             }
-
 
             fn mouse_event(&self, event: MouseEvent) -> bool {
                 for i in self.children.borrow().iter() {
@@ -566,8 +566,6 @@ impl<'a> Container<'a> {
     }
 }
 
-
-
 /// Can contains other Items, resize the items to the size of the Caintainer
 #[derive(Default)]
 pub struct FreeLayout<'a> {
@@ -594,7 +592,6 @@ impl<'a> Item<'a> for FreeLayout<'a> {
         })
     }
 
-
     fn mouse_event(&self, event: MouseEvent) -> bool {
         for i in self.children.borrow().iter() {
             let g = i.geometry().to_rect();
@@ -604,7 +601,6 @@ impl<'a> Item<'a> for FreeLayout<'a> {
         }
         return false;
     }
-
 }
 
 impl<'a> ItemContainer<'a> for Rc<FreeLayout<'a>> {
@@ -622,10 +618,14 @@ impl<'a> FreeLayout<'a> {
 #[derive(Clone)]
 pub struct QColor(piet_common::Color);
 impl Default for QColor {
-    fn default() -> Self { Self(piet_common::Color::WHITE) }
+    fn default() -> Self {
+        Self(piet_common::Color::WHITE)
+    }
 }
 impl From<u32> for QColor {
-    fn from(val : u32) -> Self { Self(piet_common::Color::from_rgba32_u32(val.swap_bytes())) }
+    fn from(val: u32) -> Self {
+        Self(piet_common::Color::from_rgba32_u32(val.swap_bytes()))
+    }
 }
 
 #[derive(Default)]
@@ -656,7 +656,6 @@ impl<'a> Rectangle<'a> {
     }
 }
 
-
 /// constants that follow Qt::Alignment
 pub mod alignment {
     pub const LEFT: i32 = 1;
@@ -666,7 +665,6 @@ pub mod alignment {
     pub const TOP: i32 = 32;
     pub const BOTTOM: i32 = 64;
     pub const VCENTER: i32 = 128;
-
 }
 
 #[derive(Default)]
@@ -688,16 +686,15 @@ impl<'a> Item<'a> for Text<'a> {
     }
 
     fn draw(&self, rc: &mut Piet) -> DrawResult {
-        use piet_common::{Text, TextLayoutBuilder, FontBuilder};
+        use piet_common::{FontBuilder, Text, TextLayoutBuilder};
         let t = rc.text();
         let f = t.new_font_by_name("", 30.)?.build()?;
         let lay = t.new_text_layout(&f, &self.text.get())?.build()?;
         let b = rc.solid_brush(self.color.get().0);
         let pos = self.geometry().to_rect().center(); // FIXME
-        rc.draw_text(&lay , pos , &b);
+        rc.draw_text(&lay, pos, &b);
         Ok(())
     }
-
 }
 impl<'a> Text<'a> {
     pub fn new() -> Rc<Self> {
@@ -741,7 +738,6 @@ impl<'a> MouseArea<'a> {
     }
 }
 
-
 #[derive(Default)]
 pub struct Image<'a> {
     pub geometry: Geometry<'a>,
@@ -780,7 +776,6 @@ impl<'a> Item<'a> for Image<'a> {
         }
         Ok(())
     }
-
 }
 impl<'a> Image<'a> {
     pub fn new() -> Rc<Self> {

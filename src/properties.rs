@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::convert::From;
 use std::default::Default;
 use std::pin::Pin;
-use std::rc::{Rc};
+use std::rc::Rc;
 
 /// A binding is a function that returns a value of type T
 pub trait PropertyBindingFn<T> {
